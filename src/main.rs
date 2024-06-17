@@ -1,12 +1,26 @@
 mod error;
 pub use crate::error::{Error, Result};
 use std::{
-    io::Write,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
 
 fn handle_connection(mut stream: TcpStream) -> Result<()> {
-    stream.write_all("+PONG\r\n".as_bytes())?;
+    // size of the buffer is arbitrary
+    let mut buf = [0; 256];
+
+    loop {
+        // calling read on stream goes to the next command
+        let bytes_read = stream.read(&mut buf)?;
+
+        // No more command on the connection
+        if bytes_read == 0 {
+            break;
+        }
+
+        stream.write_all(b"+PONG\r\n")?;
+    }
+
     Ok(())
 }
 
@@ -20,7 +34,9 @@ fn main() -> Result<()> {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle_connection(stream)?,
+            Ok(stream) => {
+                handle_connection(stream)?;
+            }
             Err(e) => {
                 println!("error: {}", e);
             }
