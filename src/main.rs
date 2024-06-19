@@ -4,10 +4,12 @@ use std::io::{Read, Write};
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
+use std::collections::HashMap;
+
+// https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs
 
 // Some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);
-const CLIENT: Token = Token(1);
 
 fn main() -> Result<()> {
     // Create a poll instance.
@@ -24,14 +26,10 @@ fn main() -> Result<()> {
     poll.registry()
         .register(&mut server, SERVER, Interest::READABLE)?;
 
-    // Setup the client socket.
-    let mut client = TcpStream::connect(addr)?;
-    // Register the socket.
-    poll.registry()
-        .register(&mut client, CLIENT, Interest::READABLE | Interest::WRITABLE)?;
-
-    // Maintain a list of connections.
-    let mut connections = Vec::new();
+    // Map of `Token` -> `TcpStream`.
+    let mut connections = HashMap::new();
+    // Unique token for each incoming connection.
+    let mut unique_token = Token(SERVER.0 + 1);
 
     loop {
         // Poll Mio for events, blocking until we get an event.
@@ -45,13 +43,15 @@ fn main() -> Result<()> {
                     loop {
                         match server.accept() {
                             Ok((mut stream, _)) => {
-                                let token = Token(connections.len() + 1);
+                                let token = Token(unique_token.0);
+                                unique_token = Token(unique_token.0 + 1);
+
                                 poll.registry().register(
                                     &mut stream,
                                     token,
                                     Interest::READABLE | Interest::WRITABLE,
                                 )?;
-                                connections.push(stream);
+                                connections.insert(token, stream);
                             }
                             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                                 // No more connections to accept.
@@ -65,8 +65,7 @@ fn main() -> Result<()> {
                 }
                 token => {
                     // Handle events for a connection.
-                    let idx = token.0 - 1;
-                    if let Some(connection) = connections.get_mut(idx) {
+                    if let Some(connection) = connections.get_mut(&token) {
                         handle_connection(connection)?;
                     }
                 }
