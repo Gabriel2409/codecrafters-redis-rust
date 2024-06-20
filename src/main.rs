@@ -116,7 +116,17 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
     }
 
     if bytes_read != 0 {
-        connection.write_all(b"+PONG\r\n")?;
+        match String::from_utf8_lossy(&received_data[..bytes_read])
+            .clone()
+            .as_ref()
+        {
+            x if x.to_lowercase() == "*1\r\n$4\r\nping\r\n" => {
+                connection.write_all(b"+PONG\r\n")?;
+            }
+            x => {
+                connection.write_all(x.as_bytes())?;
+            }
+        }
     }
     if connection_closed {
         return Ok(true);
