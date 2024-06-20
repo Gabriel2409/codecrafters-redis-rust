@@ -1,6 +1,6 @@
 mod error;
 pub use crate::error::{Error, Result};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
@@ -41,26 +41,31 @@ fn main() -> Result<()> {
                 SERVER => {
                     // If this is an event for the server, it means a connection is ready to be accepted.
                     loop {
-                        match server.accept() {
-                            Ok((mut stream, _)) => {
-                                let token = Token(unique_token.0);
-                                unique_token = Token(unique_token.0 + 1);
-
-                                poll.registry().register(
-                                    &mut stream,
-                                    token,
-                                    Interest::READABLE | Interest::WRITABLE,
-                                )?;
-                                connections.insert(token, stream);
-                            }
-                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                                // No more connections to accept.
+                        let (mut connection, address) = match server.accept() {
+                            Ok((connection, address)) => (connection, address),
+                            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                                // If we get a `WouldBlock` error we know our
+                                // listener has no more incoming connections queued,
+                                // so we can return to polling and wait for some
+                                // more.
                                 break;
                             }
                             Err(e) => {
-                                println!("Error accepting connection: {}", e);
+                                // If it was any other kind of error, something went
+                                // wrong and we terminate with an error.
+                                Err(e)?
                             }
-                        }
+                        };
+
+                        let token = Token(unique_token.0);
+                        unique_token = Token(unique_token.0 + 1);
+
+                        poll.registry().register(
+                            &mut connection,
+                            token,
+                            Interest::READABLE | Interest::WRITABLE,
+                        )?;
+                        connections.insert(token, connection);
                     }
                 }
                 token => {
