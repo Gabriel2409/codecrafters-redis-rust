@@ -6,7 +6,9 @@ use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use std::collections::HashMap;
 
+// heavily inspired by
 // https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs
+// but simplified a lot the writing of data part.
 
 // Some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);
@@ -63,15 +65,22 @@ fn main() -> Result<()> {
                         poll.registry().register(
                             &mut connection,
                             token,
-                            Interest::READABLE | Interest::WRITABLE,
+                            Interest::READABLE.add(Interest::WRITABLE),
                         )?;
                         connections.insert(token, connection);
                     }
                 }
                 token => {
                     // Handle events for a connection.
-                    if let Some(connection) = connections.get_mut(&token) {
-                        handle_connection(connection)?;
+                    let done = if let Some(connection) = connections.get_mut(&token) {
+                        handle_connection(connection)?
+                    } else {
+                        false
+                    };
+                    if done {
+                        if let Some(mut connection) = connections.remove(&token) {
+                            poll.registry().deregister(&mut connection)?;
+                        }
                     }
                 }
             }
@@ -79,26 +88,39 @@ fn main() -> Result<()> {
     }
 }
 
-fn handle_connection(stream: &mut TcpStream) -> Result<()> {
-    let mut buffer = [0; 512];
+fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
+    // we only handle readable event not writable events
+    let mut connection_closed = false;
+    let mut received_data = vec![0; 512];
+    let mut bytes_read = 0;
     loop {
-        match stream.read(&mut buffer) {
+        match connection.read(&mut received_data[bytes_read..]) {
             Ok(0) => {
-                // Connection was closed by the client.
-                return Ok(());
-            }
-            Ok(n) => {
-                // Echo the data back to the client.
-                stream.write_all(b"+PONG\r\n")?;
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No more data to read.
+                // Reading 0 bytes means the other side has closed the
+                // connection or is done writing, then so are we.
+                connection_closed = true;
                 break;
             }
-            Err(e) => {
-                println!("Error reading from connection: {}", e);
+            Ok(n) => {
+                bytes_read += n;
+                if bytes_read == received_data.len() {
+                    received_data.resize(received_data.len() + 512, 0);
+                }
             }
+            // Would block "errors" are the OS's way of saying that the
+            // connection is not actually ready to perform this I/O operation.
+            Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+            // Other errors we'll consider fatal.
+            Err(e) => Err(e)?,
         }
     }
-    Ok(())
+
+    if bytes_read != 0 {
+        connection.write_all(b"+PONG\r\n")?;
+    }
+    if connection_closed {
+        return Ok(true);
+    }
+
+    Ok(false)
 }
