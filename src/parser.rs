@@ -9,12 +9,16 @@ use nom::{
 #[derive(Debug, PartialEq)]
 enum RedisValue {
     SimpleString(String),
+    SimpleError(String),
+    Integer(i64),
 }
 
 impl std::fmt::Display for RedisValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SimpleString(x) => write!(f, "+{}\r\n", x),
+            Self::SimpleError(x) => write!(f, "-{}\r\n", x),
+            Self::Integer(x) => write!(f, ":{}\r\n", x),
         }
     }
 }
@@ -25,6 +29,14 @@ fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
         '+' => {
             let (input, val) = parse_until_crlf(input)?;
             Ok((input, RedisValue::SimpleString(val.to_string())))
+        }
+        '-' => {
+            let (input, val) = parse_until_crlf(input)?;
+            Ok((input, RedisValue::SimpleError(val.to_string())))
+        }
+        ':' => {
+            let (input, val) = parse_redis_int(input)?;
+            Ok((input, RedisValue::Integer(val)))
         }
         _ => todo!(),
     }
@@ -38,6 +50,10 @@ pub struct RedisSentence {
 
 fn parse_symbol(input: &str) -> IResult<&str, char> {
     anychar(input)
+}
+
+fn parse_redis_int(input: &str) -> IResult<&str, i64> {
+    terminated(complete::i64, parse_crlf)(input)
 }
 
 fn parse_until_crlf(input: &str) -> IResult<&str, &str> {
@@ -101,6 +117,44 @@ mod tests {
         let input = initial_input;
         let (input, redis_value) = parse_redis_value(input).finish()?;
         assert_eq!(redis_value, RedisValue::SimpleString("bonjour".to_string()));
+        assert_eq!(input, "");
+        assert_eq!(initial_input, redis_value.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_redis_value_simpleerror() -> Result<()> {
+        let initial_input = "-terrible mistake\r\n";
+        let input = initial_input;
+        let (input, redis_value) = parse_redis_value(input).finish()?;
+        assert_eq!(
+            redis_value,
+            RedisValue::SimpleError("terrible mistake".to_string())
+        );
+        assert_eq!(input, "");
+        assert_eq!(initial_input, redis_value.to_string());
+        Ok(())
+    }
+
+    fn test_parse_redis_value_integer() -> Result<()> {
+        let initial_input = ":+65\r\n";
+        let input = initial_input;
+        let (input, redis_value) = parse_redis_value(input).finish()?;
+        assert_eq!(redis_value, RedisValue::Integer(65));
+        assert_eq!(input, "");
+        assert_eq!(":65\r\n", redis_value.to_string());
+
+        let initial_input = ":455\r\n";
+        let input = initial_input;
+        let (input, redis_value) = parse_redis_value(input).finish()?;
+        assert_eq!(redis_value, RedisValue::Integer(65));
+        assert_eq!(input, "");
+        assert_eq!(initial_input, redis_value.to_string());
+
+        let initial_input = ":-879\r\n";
+        let input = initial_input;
+        let (input, redis_value) = parse_redis_value(input).finish()?;
+        assert_eq!(redis_value, RedisValue::Integer(65));
         assert_eq!(input, "");
         assert_eq!(initial_input, redis_value.to_string());
         Ok(())
