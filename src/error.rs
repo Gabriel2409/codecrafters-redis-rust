@@ -4,8 +4,8 @@ use crate::parser::{RedisSentence, RedisValue};
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Invalid redis sentence")]
-    InvalidSentence(RedisSentence),
+    #[error("Empty command")]
+    EmptyCommand,
 
     #[error("Invalid redis value")]
     InvalidRedisValue(RedisValue),

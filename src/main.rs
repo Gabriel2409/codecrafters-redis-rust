@@ -129,8 +129,8 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
         let (_, redis_value) = parse_redis_value(&input).finish()?;
         match redis_value.clone() {
             RedisValue::Array(nb_elements, arr) => {
-                //TODO: unwrap
-                let (command, args) = arr.split_first().unwrap();
+                let (command, args) = arr.split_first().ok_or_else(|| Error::EmptyCommand)?;
+
                 match command {
                     RedisValue::BulkString(_, val) => {
                         // we could add check on size
@@ -152,17 +152,17 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
                                             let val = RedisValue::SimpleString(val.clone());
                                             connection.write_all(val.to_string().as_bytes())?;
                                         }
-                                        _ => todo!(),
+                                        _ => return Err(Error::InvalidRedisValue(redis_value)),
                                     }
                                 }
                             }
-                            _ => todo!(),
+                            _ => return Err(Error::InvalidRedisValue(redis_value)),
                         }
                     }
-                    _ => todo!(),
+                    _ => return Err(Error::InvalidRedisValue(redis_value)),
                 }
             }
-            _ => todo!(),
+            _ => return Err(Error::InvalidRedisValue(redis_value)),
         }
     }
     if connection_closed {
