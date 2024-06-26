@@ -7,7 +7,7 @@ use std::io::{ErrorKind, Read, Write};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
-use parser::{parse_sentence, RedisSentence};
+use parser::{parse_redis_value, RedisValue};
 use std::collections::HashMap;
 
 // heavily inspired by
@@ -126,29 +126,43 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
     if bytes_read != 0 {
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
-        let (_, redis_sentence) = parse_sentence(&input).finish()?;
+        let (_, redis_value) = parse_redis_value(&input).finish()?;
+        match redis_value.clone() {
+            RedisValue::Array(nb_elements, arr) => {
+                //TODO: unwrap
+                let (command, args) = arr.split_first().unwrap();
+                match command {
+                    RedisValue::BulkString(_, val) => {
+                        // we could add check on size
+                        match val.to_lowercase().as_ref() {
+                            "ping" => {
+                                if nb_elements != 1 {
+                                    return Err(Error::InvalidRedisValue(redis_value));
+                                }
+                                let val = RedisValue::SimpleString("PONG".to_string());
+                                connection.write_all(val.to_string().as_bytes())?;
+                            }
 
-        let (command, other_words) = redis_sentence.words.split_first().unwrap();
-
-        match command.to_lowercase().as_ref() {
-            "ping" => {
-                if redis_sentence.nb_words != 1 {
-                    return Err(Error::InvalidSentence(redis_sentence));
-                } else {
-                    connection.write_all(b"+PONG\r\n")?;
+                            "echo" => {
+                                if nb_elements != 2 {
+                                    return Err(Error::InvalidRedisValue(redis_value));
+                                } else {
+                                    match &args[0] {
+                                        RedisValue::BulkString(_, val) => {
+                                            let val = RedisValue::SimpleString(val.clone());
+                                            connection.write_all(val.to_string().as_bytes())?;
+                                        }
+                                        _ => todo!(),
+                                    }
+                                }
+                            }
+                            _ => todo!(),
+                        }
+                    }
+                    _ => todo!(),
                 }
             }
-            "echo" => {
-                if redis_sentence.nb_words != 2 {
-                    return Err(Error::InvalidSentence(redis_sentence));
-                } else {
-                    connection.write_all(b"+")?;
-                    connection.write_all(other_words[0].as_bytes())?;
-                    connection.write_all(b"\r\n")?;
-                }
-            }
-
-            _ => return Err(Error::InvalidSentence(redis_sentence)),
+            _ => todo!(),
         }
     }
     if connection_closed {

@@ -1,11 +1,14 @@
 use thiserror::Error;
 
-use crate::parser::RedisSentence;
+use crate::parser::{RedisSentence, RedisValue};
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid redis sentence")]
     InvalidSentence(RedisSentence),
+
+    #[error("Invalid redis value")]
+    InvalidRedisValue(RedisValue),
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),

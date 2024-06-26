@@ -6,8 +6,8 @@ use nom::{
     IResult,
 };
 
-#[derive(Debug, PartialEq)]
-enum RedisValue {
+#[derive(Debug, PartialEq, Clone)]
+pub enum RedisValue {
     SimpleString(String),
     SimpleError(String),
     Integer(i64),
@@ -35,7 +35,7 @@ impl std::fmt::Display for RedisValue {
     }
 }
 
-fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
+pub fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
     let (input, symbol) = parse_symbol(input)?;
     match symbol {
         '+' => {
@@ -95,14 +95,6 @@ fn parse_crlf(input: &str) -> IResult<&str, &str> {
     tag("\r\n")(input)
 }
 
-/// Each redis commands start with the nb of words
-fn parse_nb_words(input: &str) -> IResult<&str, usize> {
-    let (input, _) = tag("*")(input)?;
-    let (input, nb_words) = complete::u32(input)?;
-    let (input, _) = parse_crlf(input)?;
-    Ok((input, nb_words as usize))
-}
-
 fn parse_bulkstring_length(input: &str) -> IResult<&str, usize> {
     let (input, _) = tag("$")(input)?;
     let (input, word_length) = complete::u32(input)?;
@@ -114,24 +106,6 @@ fn parse_bulkstring_word(input: &str, length: usize) -> IResult<&str, &str> {
     let (input, word) = take(length)(input)?;
     let (input, _) = parse_crlf(input)?;
     Ok((input, word))
-}
-
-fn parse_bulkstring(input: &str) -> IResult<&str, &str> {
-    let (input, word_length) = parse_bulkstring_length(input)?;
-    let (input, word) = parse_bulkstring_word(input, word_length)?;
-
-    Ok((input, word))
-}
-
-pub fn parse_sentence(input: &str) -> IResult<&str, RedisSentence> {
-    let (input, nb_words) = parse_nb_words(input)?;
-
-    let (input, words) = count(parse_bulkstring, nb_words)(input)?;
-    let sentence = RedisSentence {
-        nb_words,
-        words: words.into_iter().map(|w| w.to_owned()).collect(),
-    };
-    Ok((input, sentence))
 }
 
 #[cfg(test)]
@@ -222,16 +196,6 @@ mod tests {
         );
         assert_eq!(input, "");
         assert_eq!(initial_input, redis_value.to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_statement() -> Result<()> {
-        let input = "*2\r\n$4\r\nEcho\r\n$7\r\nbonjour\r\n";
-        let (input, sentence) = parse_sentence(input).finish()?;
-        assert_eq!(sentence.nb_words, 2);
-        assert_eq!(sentence.words, vec!["Echo", "bonjour"]);
-        assert_eq!(input, "");
         Ok(())
     }
 }
