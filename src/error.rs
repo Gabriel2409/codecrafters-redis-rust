@@ -22,8 +22,11 @@ pub enum Error {
     NomParseError(nom::error::Error<String>),
 }
 
-impl From<nom::error::Error<&str>> for Error {
-    fn from(err: nom::error::Error<&str>) -> Self {
+impl<I> From<nom::error::Error<I>> for Error
+where
+    I: ToString,
+{
+    fn from(err: nom::error::Error<I>) -> Self {
         Self::NomParseError(nom::error::Error {
             input: err.input.to_string(),
             code: err.code,
