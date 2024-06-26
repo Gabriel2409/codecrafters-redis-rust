@@ -1,9 +1,13 @@
 mod error;
+mod parser;
+
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
 
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
+use nom::Finish;
+use parser::{parse_sentence, RedisSentence};
 use std::collections::HashMap;
 
 // heavily inspired by
@@ -73,7 +77,11 @@ fn main() -> Result<()> {
                 token => {
                     // Handle events for a connection.
                     let done = if let Some(connection) = connections.get_mut(&token) {
-                        handle_connection(connection)?
+                        // here we force close the connection on error. Probably there is a better
+                        // way
+                        handle_connection(connection)
+                            .map_err(|e| dbg!(e))
+                            .unwrap_or(true)
                     } else {
                         false
                     };
@@ -116,16 +124,31 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
     }
 
     if bytes_read != 0 {
-        match String::from_utf8_lossy(&received_data[..bytes_read])
-            .clone()
-            .as_ref()
-        {
-            x if x.to_lowercase() == "*1\r\n$4\r\nping\r\n" => {
-                connection.write_all(b"+PONG\r\n")?;
+        let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
+
+        let (_, redis_sentence) = parse_sentence(&input).finish()?;
+
+        let (command, other_words) = redis_sentence.words.split_first().unwrap();
+
+        match command.to_lowercase().as_ref() {
+            "ping" => {
+                if redis_sentence.nb_words != 1 {
+                    return Err(Error::InvalidSentence(redis_sentence));
+                } else {
+                    connection.write_all(b"+PONG\r\n")?;
+                }
             }
-            x => {
-                connection.write_all(x.as_bytes())?;
+            "echo" => {
+                if redis_sentence.nb_words != 2 {
+                    return Err(Error::InvalidSentence(redis_sentence));
+                } else {
+                    connection.write_all(b"+")?;
+                    connection.write_all(other_words[0].as_bytes())?;
+                    connection.write_all(b"\r\n")?;
+                }
             }
+
+            _ => return Err(Error::InvalidSentence(redis_sentence)),
         }
     }
     if connection_closed {
