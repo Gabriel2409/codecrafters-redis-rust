@@ -1,9 +1,11 @@
 mod error;
+mod interpreter;
 mod parser;
 
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
 
+use interpreter::interpret;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
@@ -127,43 +129,9 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
-        match redis_value.clone() {
-            RedisValue::Array(nb_elements, arr) => {
-                let (command, args) = arr.split_first().ok_or_else(|| Error::EmptyCommand)?;
 
-                match command {
-                    RedisValue::BulkString(_, val) => {
-                        // we could add check on size
-                        match val.to_lowercase().as_ref() {
-                            "ping" => {
-                                if nb_elements != 1 {
-                                    return Err(Error::InvalidRedisValue(redis_value));
-                                }
-                                let val = RedisValue::SimpleString("PONG".to_string());
-                                connection.write_all(val.to_string().as_bytes())?;
-                            }
-
-                            "echo" => {
-                                if nb_elements != 2 {
-                                    return Err(Error::InvalidRedisValue(redis_value));
-                                } else {
-                                    match &args[0] {
-                                        RedisValue::BulkString(_, val) => {
-                                            let val = RedisValue::SimpleString(val.clone());
-                                            connection.write_all(val.to_string().as_bytes())?;
-                                        }
-                                        _ => return Err(Error::InvalidRedisValue(redis_value)),
-                                    }
-                                }
-                            }
-                            _ => return Err(Error::InvalidRedisValue(redis_value)),
-                        }
-                    }
-                    _ => return Err(Error::InvalidRedisValue(redis_value)),
-                }
-            }
-            _ => return Err(Error::InvalidRedisValue(redis_value)),
-        }
+        let response_redis_value = interpret(redis_value)?;
+        connection.write_all(response_redis_value.to_string().as_bytes())?;
     }
     if connection_closed {
         return Ok(true);
