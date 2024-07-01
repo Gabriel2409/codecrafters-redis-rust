@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let db_info = DbInfo::build(&role, master_addr);
+    let db_info = DbInfo::build(&role, args.port, master_addr);
 
     let db = RedisDb::build(db_info);
 
@@ -167,7 +167,7 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
 
-        let response_redis_value = interpret(redis_value, &db)?;
+        let response_redis_value = interpret(redis_value, db)?;
         connection.write_all(response_redis_value.to_string().as_bytes())?;
     }
     if connection_closed {

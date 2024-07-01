@@ -18,6 +18,19 @@ pub enum RedisValue {
     Array(usize, Vec<RedisValue>),
 }
 
+impl RedisValue {
+    pub fn bulkstring_from(s: &str) -> Self {
+        Self::BulkString(s.len(), s.to_string())
+    }
+    pub fn array_of_bulkstrings_from(s: &str) -> Self {
+        let redis_values = s
+            .split_whitespace()
+            .map(RedisValue::bulkstring_from)
+            .collect::<Vec<_>>();
+        Self::Array(redis_values.len(), redis_values)
+    }
+}
+
 impl std::fmt::Display for RedisValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -107,6 +107,7 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                 }
                             }
                         }
+                        "replconf" => Ok(RedisValue::SimpleString("OK".to_string())),
                         _ => Err(Error::InvalidRedisValue(redis_value)),
                     }
                 }

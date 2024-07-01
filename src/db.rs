@@ -1,7 +1,7 @@
 use mio::net::TcpStream;
 
 use crate::parser::RedisValue;
-use crate::{Error, Result};
+use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -33,6 +33,7 @@ impl DbValue {
 #[derive(Debug, Clone)]
 pub struct DbInfo {
     role: String,
+    port: u64,
 
     /// Replicas need to refer to master, set by replicaof flag
     master_addr: Option<SocketAddr>,
@@ -42,12 +43,13 @@ pub struct DbInfo {
 }
 
 impl DbInfo {
-    pub fn build(role: &str, master_addr: Option<SocketAddr>) -> Self {
+    pub fn build(role: &str, port: u64, master_addr: Option<SocketAddr>) -> Self {
         let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
         let master_repl_offset = 0;
 
         Self {
             role: role.to_string(),
+            port,
             master_addr,
             master_replid,
             master_repl_offset,
@@ -123,8 +125,18 @@ impl RedisDb {
         }
         if let Some(master_addr) = info.master_addr {
             let mut stream = TcpStream::connect(master_addr)?;
-            let redis_value =
-                RedisValue::Array(1, vec![RedisValue::BulkString(4, "PING".to_string())]);
+            let redis_value = RedisValue::array_of_bulkstrings_from("PING");
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            stream.flush()?;
+
+            let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
+                "REPLCONF listening-port {}",
+                info.port
+            ));
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            stream.flush()?;
+
+            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
             stream.write_all(redis_value.to_string().as_bytes())?;
         }
         Ok(())
