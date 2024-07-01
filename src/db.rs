@@ -1,5 +1,11 @@
+use mio::net::TcpStream;
+
+use crate::parser::RedisValue;
+use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -28,23 +34,21 @@ impl DbValue {
 pub struct DbInfo {
     role: String,
 
-    /// Replicas need to refer to master
-    replicaof_host: Option<String>,
-    replicaof_port: Option<String>,
+    /// Replicas need to refer to master, set by replicaof flag
+    master_addr: Option<SocketAddr>,
 
     master_replid: String,
     master_repl_offset: u64,
 }
 
 impl DbInfo {
-    pub fn build(role: &str, replicaof_host: Option<&str>, replicaof_port: Option<&str>) -> Self {
+    pub fn build(role: &str, master_addr: Option<SocketAddr>) -> Self {
         let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
         let master_repl_offset = 0;
 
         Self {
             role: role.to_string(),
-            replicaof_host: replicaof_host.map(|s| s.to_string()),
-            replicaof_port: replicaof_port.map(|s| s.to_string()),
+            master_addr,
             master_replid,
             master_repl_offset,
         }
@@ -110,5 +114,19 @@ impl RedisDb {
 
     pub fn info(&self) -> String {
         self.inner.borrow().info.to_string()
+    }
+
+    pub fn connect_to_master(&self) -> Result<()> {
+        let info = self.inner.borrow().info.clone();
+        if info.role != "slave" {
+            return Ok(());
+        }
+        if let Some(master_addr) = info.master_addr {
+            let mut stream = TcpStream::connect(master_addr)?;
+            let redis_value =
+                RedisValue::Array(1, vec![RedisValue::BulkString(4, "PING".to_string())]);
+            stream.write_all(redis_value.to_string().as_bytes())?;
+        }
+        Ok(())
     }
 }

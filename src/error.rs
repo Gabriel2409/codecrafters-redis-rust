@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::parser::{RedisSentence, RedisValue};
+use crate::parser::RedisValue;
 
 #[derive(Debug, Error)]
 pub enum Error {

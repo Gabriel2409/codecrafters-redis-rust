@@ -5,6 +5,7 @@ mod parser;
 
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
+use std::net::ToSocketAddrs;
 
 use db::{DbInfo, RedisDb};
 use interpreter::interpret;
@@ -38,8 +39,7 @@ fn main() -> Result<()> {
     // Creates the redis db
 
     let mut role = "master".to_string();
-    let mut replicaof_host = None;
-    let mut replicaof_port = None;
+    let mut master_addr = None;
     match args.replicaof {
         None => {}
         Some(s) => {
@@ -47,13 +47,12 @@ fn main() -> Result<()> {
 
             let arr = s.split_whitespace().collect::<Vec<_>>();
             if arr.len() == 2 {
-                replicaof_host = Some(arr[0].to_string());
-                replicaof_port = Some(arr[1].to_string());
+                master_addr = format!("{}:{}", arr[0], arr[1]).to_socket_addrs()?.next();
             }
         }
     }
 
-    let db_info = DbInfo::build(&role, replicaof_host.as_deref(), replicaof_port.as_deref());
+    let db_info = DbInfo::build(&role, master_addr);
 
     let db = RedisDb::build(db_info);
 
@@ -63,7 +62,7 @@ fn main() -> Result<()> {
     let mut events = Events::with_capacity(128);
 
     // Setup the server socket.
-    let addr = format!("127.0.0.1:{}", args.port).parse()?;
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", args.port).parse()?;
 
     let mut server = TcpListener::bind(addr)?;
 
@@ -76,6 +75,7 @@ fn main() -> Result<()> {
     // Unique token for each incoming connection.
     let mut unique_token = Token(SERVER.0 + 1);
 
+    db.connect_to_master()?;
     loop {
         // Poll Mio for events, blocking until we get an event.
         poll.poll(&mut events, None)?;
