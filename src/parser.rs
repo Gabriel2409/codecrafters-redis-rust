@@ -1,7 +1,6 @@
 use nom::{
     bytes::complete::{tag, take, take_until},
     character::complete::{self, anychar},
-    multi::count,
     sequence::terminated,
     IResult,
 };
@@ -13,6 +12,7 @@ pub enum RedisValue {
     Integer(i64),
     /// Contains size and actual string
     BulkString(usize, String),
+    NullBulkString,
     /// Contains nb of elements and actual values
     Array(usize, Vec<RedisValue>),
 }
@@ -24,6 +24,7 @@ impl std::fmt::Display for RedisValue {
             Self::SimpleError(x) => write!(f, "-{}\r\n", x),
             Self::Integer(x) => write!(f, ":{}\r\n", x),
             Self::BulkString(size, x) => write!(f, "${}\r\n{}\r\n", size, x),
+            Self::NullBulkString => write!(f, "$-1\r\n"),
             Self::Array(size, x) => {
                 write!(f, "*{}\r\n", size)?;
                 for redis_value in x {
@@ -52,9 +53,15 @@ pub fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
         }
         '$' => {
             let (input, word_length) = parse_redis_int(input)?;
-            let word_length = word_length as usize;
-            let (input, word) = parse_bulkstring_word(input, word_length)?;
-            Ok((input, RedisValue::BulkString(word_length, word.to_string())))
+
+            match word_length {
+                -1 => Ok((input, RedisValue::NullBulkString)),
+                word_length => {
+                    let word_length = word_length as usize;
+                    let (input, word) = parse_bulkstring_word(input, word_length)?;
+                    Ok((input, RedisValue::BulkString(word_length, word.to_string())))
+                }
+            }
         }
         '*' => {
             let (mut input, nb_elements) = parse_redis_int(input)?;
@@ -174,6 +181,17 @@ mod tests {
             redis_value,
             RedisValue::BulkString(7, "bonjour".to_string())
         );
+        assert_eq!(input, "");
+        assert_eq!(initial_input, redis_value.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_redis_value_nullbulkstring() -> Result<()> {
+        let initial_input = "$-1\r\n";
+        let input = initial_input;
+        let (input, redis_value) = parse_redis_value(input).finish()?;
+        assert_eq!(redis_value, RedisValue::NullBulkString);
         assert_eq!(input, "");
         assert_eq!(initial_input, redis_value.to_string());
         Ok(())
