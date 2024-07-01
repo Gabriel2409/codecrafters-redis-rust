@@ -25,21 +25,25 @@ impl DbValue {
 }
 
 #[derive(Debug, Clone)]
-struct DbInfo {
+pub struct DbInfo {
     role: String,
+    replicaof_host: Option<String>,
+    replicaof_port: Option<String>,
 }
 
 impl DbInfo {
-    pub fn new() -> Self {
+    pub fn build(role: &str, replicaof_host: Option<&str>, replicaof_port: Option<&str>) -> Self {
         Self {
-            role: "master".to_string(),
+            role: role.to_string(),
+            replicaof_host: replicaof_host.map(|s| s.to_string()),
+            replicaof_port: replicaof_port.map(|s| s.to_string()),
         }
     }
 }
 
 impl std::fmt::Display for DbInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "role: {}\r\n", self.role)?;
+        write!(f, "role:{}\r\n", self.role)?;
         Ok(())
     }
 }
@@ -51,9 +55,9 @@ struct InnerRedisDb {
 }
 
 impl InnerRedisDb {
-    pub fn new() -> Self {
+    pub fn build(info: DbInfo) -> Self {
         Self {
-            info: DbInfo::new(),
+            info,
             store: HashMap::new(),
         }
     }
@@ -65,9 +69,9 @@ pub struct RedisDb {
 }
 
 impl RedisDb {
-    pub fn build() -> Self {
+    pub fn build(info: DbInfo) -> Self {
         Self {
-            inner: Rc::new(RefCell::new(InnerRedisDb::new())),
+            inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
         }
     }
 

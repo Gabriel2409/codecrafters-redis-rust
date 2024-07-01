@@ -6,7 +6,7 @@ mod parser;
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
 
-use db::RedisDb;
+use db::{DbInfo, RedisDb};
 use interpreter::interpret;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
@@ -21,6 +21,8 @@ use clap::Parser;
 struct Cli {
     #[arg(long, default_value_t = 6379)]
     port: u64,
+    #[arg(long)]
+    replicaof: Option<String>,
 }
 
 // heavily inspired by
@@ -34,7 +36,26 @@ fn main() -> Result<()> {
     let args = Cli::parse();
 
     // Creates the redis db
-    let db = RedisDb::build();
+
+    let mut role = "master".to_string();
+    let mut replicaof_host = None;
+    let mut replicaof_port = None;
+    match args.replicaof {
+        None => {}
+        Some(s) => {
+            role = "slave".to_string();
+
+            let arr = s.split_whitespace().collect::<Vec<_>>();
+            if arr.len() == 2 {
+                replicaof_host = Some(arr[0].to_string());
+                replicaof_port = Some(arr[1].to_string());
+            }
+        }
+    }
+
+    let db_info = DbInfo::build(&role, replicaof_host.as_deref(), replicaof_port.as_deref());
+
+    let db = RedisDb::build(db_info);
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
