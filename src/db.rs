@@ -4,7 +4,7 @@ use crate::parser::RedisValue;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -125,19 +125,21 @@ impl RedisDb {
         }
         if let Some(master_addr) = info.master_addr {
             let mut stream = TcpStream::connect(master_addr)?;
+
             let redis_value = RedisValue::array_of_bulkstrings_from("PING");
             stream.write_all(redis_value.to_string().as_bytes())?;
-            stream.flush()?;
 
+            std::thread::sleep(Duration::from_millis(500));
             let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
                 "REPLCONF listening-port {}",
                 info.port
             ));
             stream.write_all(redis_value.to_string().as_bytes())?;
-            stream.flush()?;
 
+            std::thread::sleep(Duration::from_millis(500));
             let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
             stream.write_all(redis_value.to_string().as_bytes())?;
+            std::thread::sleep(Duration::from_millis(500));
         }
         Ok(())
     }
