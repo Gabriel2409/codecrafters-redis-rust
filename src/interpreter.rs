@@ -88,6 +88,25 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                 }
                             }
                         }
+                        "info" => {
+                            if nb_elements != 2 {
+                                Err(Error::InvalidRedisValue(redis_value))
+                            } else {
+                                match &args[0] {
+                                    RedisValue::BulkString(_, info_cmd) => {
+                                        match info_cmd.as_str() {
+                                            "replication" => {
+                                                let answer = String::from("role:master\r\n");
+
+                                                Ok(RedisValue::BulkString(answer.len(), answer))
+                                            }
+                                            _ => Err(Error::InvalidRedisValue(redis_value)),
+                                        }
+                                    }
+                                    _ => Err(Error::InvalidRedisValue(redis_value)),
+                                }
+                            }
+                        }
                         _ => Err(Error::InvalidRedisValue(redis_value)),
                     }
                 }
