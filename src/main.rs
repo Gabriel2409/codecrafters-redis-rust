@@ -14,6 +14,15 @@ use nom::Finish;
 use parser::parse_redis_value;
 use std::collections::HashMap;
 
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(version, about="Custom redis", long_about=None )]
+struct Cli {
+    #[arg(long, default_value_t = 6379)]
+    port: u64,
+}
+
 // heavily inspired by
 // https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs
 // but simplified a lot the writing of data part.
@@ -22,14 +31,10 @@ use std::collections::HashMap;
 const SERVER: Token = Token(0);
 
 fn main() -> Result<()> {
-    let mut args = std::env::args();
-
-    // TODO: add check that first arg is --port
-
-    let port = args.nth(2).unwrap_or("6379".to_string());
+    let args = Cli::parse();
 
     // Creates the redis db
-    let db = RedisDb::new();
+    let db = RedisDb::build();
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
@@ -37,7 +42,7 @@ fn main() -> Result<()> {
     let mut events = Events::with_capacity(128);
 
     // Setup the server socket.
-    let addr = format!("127.0.0.1:{}", port).parse()?;
+    let addr = format!("127.0.0.1:{}", args.port).parse()?;
 
     let mut server = TcpListener::bind(addr)?;
 

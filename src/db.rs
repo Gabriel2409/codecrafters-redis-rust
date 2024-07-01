@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use crate::parser::RedisValue;
-
 #[derive(Debug, Clone)]
 struct DbValue {
     value: String,
@@ -32,7 +30,7 @@ pub struct RedisDb {
 }
 
 impl RedisDb {
-    pub fn new() -> Self {
+    pub fn build() -> Self {
         Self {
             store: Rc::new(RefCell::new(HashMap::new())),
         }
