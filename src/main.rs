@@ -22,6 +22,12 @@ use std::collections::HashMap;
 const SERVER: Token = Token(0);
 
 fn main() -> Result<()> {
+    let mut args = std::env::args();
+
+    // TODO: add check that first arg is --port
+
+    let port = args.nth(2).unwrap_or("6379".to_string());
+
     // Creates the redis db
     let db = RedisDb::new();
 
@@ -31,7 +37,7 @@ fn main() -> Result<()> {
     let mut events = Events::with_capacity(128);
 
     // Setup the server socket.
-    let addr = "127.0.0.1:6379".parse()?;
+    let addr = format!("127.0.0.1:{}", port).parse()?;
 
     let mut server = TcpListener::bind(addr)?;
 
