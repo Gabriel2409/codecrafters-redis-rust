@@ -32,7 +32,7 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                             }
                         }
                         "set" => {
-                            if nb_elements != 3 {
+                            if nb_elements != 3 && nb_elements != 5 {
                                 Err(Error::InvalidRedisValue(redis_value))
                             } else {
                                 match (&args[0], &args[1]) {
@@ -40,7 +40,30 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                         RedisValue::BulkString(_, key),
                                         RedisValue::BulkString(_, value),
                                     ) => {
-                                        db.set(key.clone(), value.clone());
+                                        let px = {
+                                            if nb_elements == 5 {
+                                                match (&args[2], &args[3]) {
+                                                    (
+                                                        RedisValue::BulkString(_, px_id),
+                                                        RedisValue::BulkString(_, px_ms),
+                                                    ) => {
+                                                        if px_id.to_lowercase() != "px" {
+                                                            return Err(Error::InvalidRedisValue(
+                                                                redis_value,
+                                                            ));
+                                                        }
+                                                        Some(px_ms.parse()?)
+                                                    }
+                                                    _ => {
+                                                        Err(Error::InvalidRedisValue(redis_value))?
+                                                    }
+                                                }
+                                            } else {
+                                                None
+                                            }
+                                        };
+
+                                        db.set(key.clone(), value.clone(), px);
 
                                         Ok(RedisValue::SimpleString("OK".to_string()))
                                     }
@@ -55,8 +78,11 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                             } else {
                                 match &args[0] {
                                     RedisValue::BulkString(_, key) => {
-                                        let val = db.get(key).unwrap_or("(nil)".to_string());
-                                        Ok(RedisValue::SimpleString(val))
+                                        let val = db.get(key);
+                                        match val {
+                                            Some(val) => Ok(RedisValue::SimpleString(val)),
+                                            None => Ok(RedisValue::NullBulkString),
+                                        }
                                     }
                                     _ => Err(Error::InvalidRedisValue(redis_value)),
                                 }

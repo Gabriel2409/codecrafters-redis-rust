@@ -12,6 +12,7 @@ pub enum RedisValue {
     Integer(i64),
     /// Contains size and actual string
     BulkString(usize, String),
+    /// (shows up as (nil))
     NullBulkString,
     /// Contains nb of elements and actual values
     Array(usize, Vec<RedisValue>),
