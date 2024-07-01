@@ -96,7 +96,7 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                     RedisValue::BulkString(_, info_cmd) => {
                                         match info_cmd.as_str() {
                                             "replication" => {
-                                                let answer = String::from("role:master\r\n");
+                                                let answer = db.info();
 
                                                 Ok(RedisValue::BulkString(answer.len(), answer))
                                             }
