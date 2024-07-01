@@ -1,3 +1,4 @@
+mod db;
 mod error;
 mod interpreter;
 mod parser;
@@ -5,11 +6,12 @@ mod parser;
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
 
+use db::RedisDb;
 use interpreter::interpret;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
-use parser::{parse_redis_value, RedisValue};
+use parser::parse_redis_value;
 use std::collections::HashMap;
 
 // heavily inspired by
@@ -20,6 +22,9 @@ use std::collections::HashMap;
 const SERVER: Token = Token(0);
 
 fn main() -> Result<()> {
+    // Creates the redis db
+    let db = RedisDb::new();
+
     // Create a poll instance.
     let mut poll = Poll::new()?;
     // Create storage for events.
@@ -81,7 +86,7 @@ fn main() -> Result<()> {
                     let done = if let Some(connection) = connections.get_mut(&token) {
                         // here we force close the connection on error. Probably there is a better
                         // way
-                        handle_connection(connection)
+                        handle_connection(connection, &db)
                             .map_err(|e| dbg!(e))
                             .unwrap_or(true)
                     } else {
@@ -98,7 +103,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
+fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
     // we only handle readable event not writable events
     let mut connection_closed = false;
     let mut received_data = vec![0; 512];
@@ -130,7 +135,7 @@ fn handle_connection(connection: &mut TcpStream) -> Result<bool> {
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
 
-        let response_redis_value = interpret(redis_value)?;
+        let response_redis_value = interpret(redis_value, &db)?;
         connection.write_all(response_redis_value.to_string().as_bytes())?;
     }
     if connection_closed {
