@@ -27,16 +27,26 @@ impl DbValue {
 #[derive(Debug, Clone)]
 pub struct DbInfo {
     role: String,
+
+    /// Replicas need to refer to master
     replicaof_host: Option<String>,
     replicaof_port: Option<String>,
+
+    master_replid: String,
+    master_repl_offset: u64,
 }
 
 impl DbInfo {
     pub fn build(role: &str, replicaof_host: Option<&str>, replicaof_port: Option<&str>) -> Self {
+        let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
+        let master_repl_offset = 0;
+
         Self {
             role: role.to_string(),
             replicaof_host: replicaof_host.map(|s| s.to_string()),
             replicaof_port: replicaof_port.map(|s| s.to_string()),
+            master_replid,
+            master_repl_offset,
         }
     }
 }
@@ -44,6 +54,8 @@ impl DbInfo {
 impl std::fmt::Display for DbInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "role:{}\r\n", self.role)?;
+        write!(f, "master_replid:{}\r\n", self.master_replid)?;
+        write!(f, "master_repl_offset:{}\r\n", self.master_repl_offset)?;
         Ok(())
     }
 }
