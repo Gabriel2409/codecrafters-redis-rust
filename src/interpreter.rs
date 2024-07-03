@@ -3,7 +3,8 @@ use crate::parser::RedisValue;
 use crate::{Error, Result};
 
 /// Takes a redis value as input and returns a redis value as response
-pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
+/// bool also mentions if should forward to replica
+pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<(RedisValue, bool)> {
     match redis_value.clone() {
         RedisValue::Array(nb_elements, arr) => {
             let (command, args) = arr.split_first().ok_or_else(|| Error::EmptyCommand)?;
@@ -16,17 +17,16 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                             if nb_elements != 1 {
                                 return Err(Error::InvalidRedisValue(redis_value));
                             }
-                            Ok(RedisValue::SimpleString("PONG".to_string()))
+                            Ok((RedisValue::SimpleString("PONG".to_string()), false))
                         }
 
                         "echo" => {
-                            dbg!("AAAA");
                             if nb_elements != 2 {
                                 Err(Error::InvalidRedisValue(redis_value))
                             } else {
                                 match &args[0] {
                                     RedisValue::BulkString(_, val) => {
-                                        Ok(RedisValue::SimpleString(val.clone()))
+                                        Ok((RedisValue::SimpleString(val.clone()), false))
                                     }
                                     _ => Err(Error::InvalidRedisValue(redis_value)),
                                 }
@@ -66,7 +66,7 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
 
                                         db.set(key.clone(), value.clone(), px);
 
-                                        Ok(RedisValue::SimpleString("OK".to_string()))
+                                        Ok((RedisValue::SimpleString("OK".to_string()), true))
                                     }
                                     _ => Err(Error::InvalidRedisValue(redis_value)),
                                 }
@@ -81,8 +81,8 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                     RedisValue::BulkString(_, key) => {
                                         let val = db.get(key);
                                         match val {
-                                            Some(val) => Ok(RedisValue::SimpleString(val)),
-                                            None => Ok(RedisValue::NullBulkString),
+                                            Some(val) => Ok((RedisValue::SimpleString(val), false)),
+                                            None => Ok((RedisValue::NullBulkString, false)),
                                         }
                                     }
                                     _ => Err(Error::InvalidRedisValue(redis_value)),
@@ -99,7 +99,10 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                             "replication" => {
                                                 let answer = db.info();
 
-                                                Ok(RedisValue::BulkString(answer.len(), answer))
+                                                Ok((
+                                                    RedisValue::BulkString(answer.len(), answer),
+                                                    false,
+                                                ))
                                             }
                                             _ => Err(Error::InvalidRedisValue(redis_value)),
                                         }
@@ -118,15 +121,15 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                     let replica_port: u64 = port.parse()?;
                                     db.set_replica_port(replica_port);
                                 }
-                                Ok(RedisValue::SimpleString("OK".to_string()))
+                                Ok((RedisValue::SimpleString("OK".to_string()), false))
                             }
                         }
                         "psync" => {
                             let master_replid = db.master_replid();
-                            Ok(RedisValue::SimpleString(format!(
-                                "FULLRESYNC {} 0",
-                                master_replid
-                            )))
+                            Ok((
+                                RedisValue::SimpleString(format!("FULLRESYNC {} 0", master_replid)),
+                                false,
+                            ))
                         }
                         _ => Err(Error::InvalidRedisValue(redis_value)),
                     }

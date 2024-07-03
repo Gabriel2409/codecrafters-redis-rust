@@ -172,7 +172,7 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
 
-        let response_redis_value = interpret(redis_value.clone(), db)?;
+        let (response_redis_value, should_forward) = interpret(redis_value.clone(), db)?;
         connection.write_all(response_redis_value.to_string().as_bytes())?;
 
         // TODO:: improve flow
@@ -182,7 +182,7 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
             connection.write_all(&bytes)?;
         }
 
-        if redis_value.to_string().contains("ECHO") {
+        if should_forward {
             db.send_to_replica(redis_value)?;
         }
     }
