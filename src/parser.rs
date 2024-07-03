@@ -5,6 +5,8 @@ use nom::{
     IResult,
 };
 
+use crate::{Error, Result};
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum RedisValue {
     SimpleString(String),
@@ -28,6 +30,18 @@ impl RedisValue {
             .map(RedisValue::bulkstring_from)
             .collect::<Vec<_>>();
         Self::Array(redis_values.len(), redis_values)
+    }
+
+    pub fn inner_string(&self) -> Result<String> {
+        let res = match self {
+            RedisValue::SimpleString(x) => x.to_string(),
+            RedisValue::SimpleError(x) => x.to_string(),
+            RedisValue::Integer(x) => x.to_string(),
+            RedisValue::BulkString(_, x) => x.to_string(),
+            RedisValue::NullBulkString => "(nil)".to_string(),
+            _ => Err(Error::CantConvertToString(self.clone()))?,
+        };
+        Ok(res)
     }
 }
 

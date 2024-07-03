@@ -2,7 +2,7 @@ use crate::db::RedisDb;
 use crate::parser::RedisValue;
 use crate::{Error, Result};
 
-/// Transforms a redis value into another
+/// Takes a redis value as input and returns a redis value as response
 pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
     match redis_value.clone() {
         RedisValue::Array(nb_elements, arr) => {
@@ -20,6 +20,7 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                         }
 
                         "echo" => {
+                            dbg!("AAAA");
                             if nb_elements != 2 {
                                 Err(Error::InvalidRedisValue(redis_value))
                             } else {
@@ -107,7 +108,19 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                                 }
                             }
                         }
-                        "replconf" => Ok(RedisValue::SimpleString("OK".to_string())),
+                        "replconf" => {
+                            if nb_elements != 3 {
+                                Err(Error::InvalidRedisValue(redis_value))
+                            } else {
+                                if let ("listening-port", port) =
+                                    (args[0].inner_string()?.as_ref(), args[1].inner_string()?)
+                                {
+                                    let replica_port: u64 = port.parse()?;
+                                    db.set_replica_port(replica_port);
+                                }
+                                Ok(RedisValue::SimpleString("OK".to_string()))
+                            }
+                        }
                         "psync" => {
                             let master_replid = db.master_replid();
                             Ok(RedisValue::SimpleString(format!(

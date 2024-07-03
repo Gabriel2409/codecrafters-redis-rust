@@ -38,6 +38,9 @@ pub struct DbInfo {
 
     master_replid: String,
     master_repl_offset: u64,
+    /// For now we store only the port and assume we are on localhost
+    /// We also assume there is at most one replica
+    replica_port: Option<u64>,
 }
 
 impl DbInfo {
@@ -51,6 +54,7 @@ impl DbInfo {
             master_addr,
             master_replid,
             master_repl_offset,
+            replica_port: None,
         }
     }
 }
@@ -120,6 +124,10 @@ impl RedisDb {
         self.inner.borrow().info.master_replid.clone()
     }
 
+    pub fn set_replica_port(&self, replica_port: u64) {
+        self.inner.borrow_mut().info.replica_port = Some(replica_port);
+    }
+
     /// Connects the replica to master.
     /// We use std::net::TcpStream instead of mio because we need to wait for response
     /// before the other steps
@@ -132,7 +140,7 @@ impl RedisDb {
 
         if let Some(master_addr) = info.master_addr {
             // important to use a std::net stream here, we want blocking calls.
-            let mut stream = std::net::TcpStream::connect(master_addr).unwrap();
+            let mut stream = std::net::TcpStream::connect(master_addr)?;
 
             // Responses from server are small so we don't need a large buffer
             let mut buf = [0; 256];
@@ -176,5 +184,17 @@ impl RedisDb {
             println!("{}", response);
         }
         Ok(())
+    }
+
+    pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
+        match self.inner.borrow().info.replica_port {
+            None => Ok(()),
+            Some(port) => {
+                let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse()?;
+                let mut stream = mio::net::TcpStream::connect(addr)?;
+                stream.write_all(redis_value.to_string().as_bytes())?;
+                Ok(())
+            }
+        }
     }
 }

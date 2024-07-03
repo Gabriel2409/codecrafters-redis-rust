@@ -10,6 +10,9 @@ pub enum Error {
     #[error("Invalid redis value")]
     InvalidRedisValue(RedisValue),
 
+    #[error("Redis value cant be converted to string")]
+    CantConvertToString(RedisValue),
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
