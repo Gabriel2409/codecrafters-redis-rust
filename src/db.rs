@@ -168,6 +168,12 @@ impl RedisDb {
             let bytes_read = stream.read(&mut buf)?;
             let response = String::from_utf8_lossy(&buf[..bytes_read]);
             println!("{}", response);
+
+            // TODO: actually parse length and then read the full rdb file
+            buf.fill(0);
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
         }
         Ok(())
     }

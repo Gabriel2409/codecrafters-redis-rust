@@ -12,7 +12,7 @@ use interpreter::interpret;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
-use parser::parse_redis_value;
+use parser::{parse_redis_value, RedisValue};
 use std::collections::HashMap;
 
 use clap::Parser;
@@ -174,6 +174,13 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
 
         let response_redis_value = interpret(redis_value, db)?;
         connection.write_all(response_redis_value.to_string().as_bytes())?;
+
+        // TODO:: improve flow
+        if response_redis_value.to_string().starts_with("+FULLRESYNC") {
+            let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
+            connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
+            connection.write_all(&bytes)?;
+        }
     }
     if connection_closed {
         return Ok(true);
