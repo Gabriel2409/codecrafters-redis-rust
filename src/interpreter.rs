@@ -108,6 +108,13 @@ pub fn interpret(redis_value: RedisValue, db: &RedisDb) -> Result<RedisValue> {
                             }
                         }
                         "replconf" => Ok(RedisValue::SimpleString("OK".to_string())),
+                        "psync" => {
+                            let master_replid = db.master_replid();
+                            Ok(RedisValue::SimpleString(format!(
+                                "FULLRESYNC {} 0",
+                                master_replid
+                            )))
+                        }
                         _ => Err(Error::InvalidRedisValue(redis_value)),
                     }
                 }

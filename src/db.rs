@@ -116,6 +116,10 @@ impl RedisDb {
         self.inner.borrow().info.to_string()
     }
 
+    pub fn master_replid(&self) -> String {
+        self.inner.borrow().info.master_replid.clone()
+    }
+
     /// Connects the replica to master.
     /// We use std::net::TcpStream instead of mio because we need to wait for response
     /// before the other steps
@@ -153,6 +157,13 @@ impl RedisDb {
             buf.fill(0);
 
             let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+
+            buf.fill(0);
+            let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
             stream.write_all(redis_value.to_string().as_bytes())?;
             let bytes_read = stream.read(&mut buf)?;
             let response = String::from_utf8_lossy(&buf[..bytes_read]);
