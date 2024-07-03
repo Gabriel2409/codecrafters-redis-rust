@@ -33,6 +33,11 @@ struct Cli {
 // Some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);
 
+enum State {
+    Connecting,
+    Connected,
+}
+
 fn main() -> Result<()> {
     let args = Cli::parse();
 

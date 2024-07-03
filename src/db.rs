@@ -1,10 +1,8 @@
-use mio::net::TcpStream;
-
 use crate::parser::RedisValue;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -118,28 +116,47 @@ impl RedisDb {
         self.inner.borrow().info.to_string()
     }
 
+    /// Connects the replica to master.
+    /// We use std::net::TcpStream instead of mio because we need to wait for response
+    /// before the other steps
     pub fn connect_to_master(&self) -> Result<()> {
         let info = self.inner.borrow().info.clone();
         if info.role != "slave" {
+            // do nothing for master
             return Ok(());
         }
+
         if let Some(master_addr) = info.master_addr {
-            let mut stream = TcpStream::connect(master_addr)?;
+            // important to use a std::net stream here, we want blocking calls.
+            let mut stream = std::net::TcpStream::connect(master_addr).unwrap();
+
+            // Responses from server are small so we don't need a large buffer
+            let mut buf = [0; 256];
 
             let redis_value = RedisValue::array_of_bulkstrings_from("PING");
             stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
 
-            std::thread::sleep(Duration::from_millis(500));
+            buf.fill(0);
+
             let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
                 "REPLCONF listening-port {}",
                 info.port
             ));
             stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
 
-            std::thread::sleep(Duration::from_millis(500));
+            buf.fill(0);
+
             let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
             stream.write_all(redis_value.to_string().as_bytes())?;
-            std::thread::sleep(Duration::from_millis(500));
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
         }
         Ok(())
     }
