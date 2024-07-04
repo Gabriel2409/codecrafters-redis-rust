@@ -8,7 +8,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
-use command::{interpret, RedisCommand};
+use command::RedisCommand;
 use db::{DbInfo, RedisDb};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
