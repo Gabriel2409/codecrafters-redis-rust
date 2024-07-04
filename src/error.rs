@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::parser::RedisValue;
+use crate::{command::RedisCommand, parser::RedisValue};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -9,6 +9,9 @@ pub enum Error {
 
     #[error("Invalid redis value")]
     InvalidRedisValue(RedisValue),
+
+    #[error("Invalid redis command")]
+    InvalidRedisCommand(RedisCommand),
 
     #[error("Redis value cant be converted to string")]
     CantConvertToString(RedisValue),

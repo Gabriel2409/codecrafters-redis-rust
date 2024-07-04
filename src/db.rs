@@ -1,8 +1,5 @@
-use crate::parser::RedisValue;
-use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -38,9 +35,6 @@ pub struct DbInfo {
 
     master_replid: String,
     master_repl_offset: u64,
-    /// For now we store only the port and assume we are on localhost
-    /// We also assume there is at most one replica
-    replica_port: Option<u64>,
 }
 
 impl DbInfo {
@@ -54,7 +48,6 @@ impl DbInfo {
             master_addr,
             master_replid,
             master_repl_offset,
-            replica_port: None,
         }
     }
 }
@@ -122,10 +115,6 @@ impl RedisDb {
 
     pub fn master_replid(&self) -> String {
         self.inner.borrow().info.master_replid.clone()
-    }
-
-    pub fn set_replica_port(&self, replica_port: u64) {
-        self.inner.borrow_mut().info.replica_port = Some(replica_port);
     }
 
     // pub fn connect_to_master(&self) -> Result<()> {

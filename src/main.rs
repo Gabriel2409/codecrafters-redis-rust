@@ -1,6 +1,6 @@
+mod command;
 mod db;
 mod error;
-mod interpreter;
 mod parser;
 
 pub use crate::error::{Error, Result};
@@ -8,8 +8,8 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
 use std::time::Duration;
 
+use command::{interpret, RedisCommand};
 use db::{DbInfo, RedisDb};
-use interpreter::interpret;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
@@ -166,8 +166,9 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
+        let redis_command = RedisCommand::try_from(redis_value)?;
+        let response_redis_value = redis_command.execute(db)?;
 
-        let response_redis_value = interpret(redis_value, db)?;
         connection.write_all(response_redis_value.to_string().as_bytes())?;
 
         // TODO:: improve flow - this is pretty bad
