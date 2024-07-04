@@ -128,74 +128,71 @@ impl RedisDb {
         self.inner.borrow_mut().info.replica_port = Some(replica_port);
     }
 
-    /// Connects the replica to master.
-    /// We use std::net::TcpStream instead of mio because we need to wait for response
-    /// before the other steps
-    pub fn connect_to_master(&self) -> Result<()> {
-        let info = self.inner.borrow().info.clone();
-        if info.role != "slave" {
-            // do nothing for master
-            return Ok(());
-        }
-
-        if let Some(master_addr) = info.master_addr {
-            // important to use a std::net stream here, we want blocking calls.
-            let mut stream = std::net::TcpStream::connect(master_addr)?;
-
-            // Responses from server are small so we don't need a large buffer
-            let mut buf = [0; 256];
-
-            let redis_value = RedisValue::array_of_bulkstrings_from("PING");
-            stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
-
-            buf.fill(0);
-
-            let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
-                "REPLCONF listening-port {}",
-                info.port
-            ));
-            stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
-
-            buf.fill(0);
-
-            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
-            stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
-
-            buf.fill(0);
-            let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
-            stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
-
-            // TODO: actually parse length and then read the full rdb file
-            std::thread::sleep(Duration::from_millis(1000));
-            buf.fill(0);
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
-        }
-        Ok(())
-    }
-
-    pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
-        match self.inner.borrow().info.replica_port {
-            None => Ok(()),
-            Some(port) => {
-                let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse()?;
-                let mut stream = mio::net::TcpStream::connect(addr)?;
-                stream.write_all(redis_value.to_string().as_bytes())?;
-                Ok(())
-            }
-        }
-    }
+    // pub fn connect_to_master(&self) -> Result<()> {
+    //     let info = self.inner.borrow().info.clone();
+    //     if info.role != "slave" {
+    //         // do nothing for master
+    //         return Ok(());
+    //     }
+    //
+    //     if let Some(master_addr) = info.master_addr {
+    //         // important to use a std::net stream here, we want blocking calls.
+    //         let mut stream = std::net::TcpStream::connect(master_addr)?;
+    //
+    //         // Responses from server are small so we don't need a large buffer
+    //         let mut buf = [0; 256];
+    //
+    //         let redis_value = RedisValue::array_of_bulkstrings_from("PING");
+    //         stream.write_all(redis_value.to_string().as_bytes())?;
+    //         let bytes_read = stream.read(&mut buf)?;
+    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
+    //         println!("{}", response);
+    //
+    //         buf.fill(0);
+    //
+    //         let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
+    //             "REPLCONF listening-port {}",
+    //             info.port
+    //         ));
+    //         stream.write_all(redis_value.to_string().as_bytes())?;
+    //         let bytes_read = stream.read(&mut buf)?;
+    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
+    //         println!("{}", response);
+    //
+    //         buf.fill(0);
+    //
+    //         let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
+    //         stream.write_all(redis_value.to_string().as_bytes())?;
+    //         let bytes_read = stream.read(&mut buf)?;
+    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
+    //         println!("{}", response);
+    //
+    //         buf.fill(0);
+    //         let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
+    //         stream.write_all(redis_value.to_string().as_bytes())?;
+    //         let bytes_read = stream.read(&mut buf)?;
+    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
+    //         println!("{}", response);
+    //
+    //         // TODO: actually parse length and then read the full rdb file
+    //         std::thread::sleep(Duration::from_millis(1000));
+    //         buf.fill(0);
+    //         let bytes_read = stream.read(&mut buf)?;
+    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
+    //         println!("{}", response);
+    //     }
+    //     Ok(())
+    // }
+    //
+    // pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
+    //     match self.inner.borrow().info.replica_port {
+    //         None => Ok(()),
+    //         Some(port) => {
+    //             let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse()?;
+    //             let mut stream = mio::net::TcpStream::connect(addr)?;
+    //             stream.write_all(redis_value.to_string().as_bytes())?;
+    //             Ok(())
+    //         }
+    //     }
+    // }
 }
