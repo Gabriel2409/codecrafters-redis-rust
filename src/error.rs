@@ -7,6 +7,9 @@ pub enum Error {
     #[error("Invalid master address")]
     InvaldMasterAddr,
 
+    #[error("Invalid answer during handshake")]
+    InvalidAnswerDuringHandshake(RedisValue),
+
     #[error("Empty command")]
     EmptyCommand,
 

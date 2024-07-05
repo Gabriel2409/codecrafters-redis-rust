@@ -11,6 +11,15 @@ use std::time::{Duration, Instant};
 use crate::parser::RedisValue;
 
 #[derive(Debug, Clone)]
+pub enum ConnectionState {
+    Ready,
+    BeforePing,
+    BeforeReplConf1,
+    BeforeReplConf2,
+    BeforePsync,
+}
+
+#[derive(Debug, Clone)]
 struct DbValue {
     value: String,
     expires_at: Option<Instant>,
@@ -80,14 +89,16 @@ impl InnerRedisDb {
 
 #[derive(Debug, Clone)]
 pub struct RedisDb {
+    pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     // TODO: make a vec
     pub replica_stream: Rc<RefCell<Option<TcpStream>>>,
 }
 
 impl RedisDb {
-    pub fn build(info: DbInfo) -> Self {
+    pub fn build(info: DbInfo, state: ConnectionState) -> Self {
         Self {
+            state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
             replica_stream: Rc::new(RefCell::new(None)),
         }
@@ -114,11 +125,14 @@ impl RedisDb {
         }
     }
 
-    pub fn is_master(&self) -> bool {
-        self.inner.borrow().info.role == "master"
+    pub fn is_replica(&self) -> bool {
+        self.inner.borrow().info.role == "slave"
     }
     pub fn info(&self) -> String {
         self.inner.borrow().info.to_string()
+    }
+    pub fn port(&self) -> u16 {
+        self.inner.borrow().info.port
     }
 
     pub fn master_replid(&self) -> String {
@@ -129,19 +143,13 @@ impl RedisDb {
         self.replica_stream = Rc::new(RefCell::new(Some(replica_stream)));
     }
 
+    /// Starts the handshake process: A replica sends a ping to the master
+    /// Note that the response is handled in the main loop
     pub fn send_ping_to_master(&self, stream: &mut TcpStream) -> Result<()> {
-        let port = self.inner.borrow().info.port;
+        // let port = self.inner.borrow().info.port;
 
-        dbg!("AA");
-
-        dbg!(&stream);
-        // Responses from server are small so we don't need a large buffer
-        let mut buf = [0; 256];
-
-        dbg!("YY");
         let redis_value = RedisValue::array_of_bulkstrings_from("PING");
         stream.write_all(redis_value.to_string().as_bytes())?;
-        dbg!("BBB");
 
         //     loop {
         //         match stream.read(&mut buf) {

@@ -4,15 +4,16 @@ mod error;
 mod parser;
 
 pub use crate::error::{Error, Result};
+use crate::parser::RedisValue;
 use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
 
 use command::RedisCommand;
-use db::{DbInfo, RedisDb};
+use db::{ConnectionState, DbInfo, RedisDb};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
-use parser::{parse_redis_value, RedisValue};
+use parser::parse_redis_value;
 use std::collections::HashMap;
 
 use clap::Parser;
@@ -32,12 +33,9 @@ struct Cli {
 
 // Some tokens to allow us to identify which event is for which socket.
 
-#[derive(Debug)]
-pub enum State {
-    BeforePing,
-}
-
+// Standard way to accept commands
 const SERVER: Token = Token(0);
+// When registering a replica, the associated connection is registered with this token
 const REPLICA: Token = Token(1);
 
 fn main() -> Result<()> {
@@ -47,10 +45,12 @@ fn main() -> Result<()> {
 
     let mut role = "master".to_string();
     let mut master_stream = None;
+    let mut state = ConnectionState::Ready;
     match args.replicaof {
         None => {}
         Some(s) => {
             role = "slave".to_string();
+            state = ConnectionState::BeforePing;
 
             let arr = s.split_whitespace().collect::<Vec<_>>();
             if arr.len() == 2 {
@@ -65,7 +65,7 @@ fn main() -> Result<()> {
 
     let db_info = DbInfo::build(&role, args.port);
 
-    let mut db = RedisDb::build(db_info);
+    let mut db = RedisDb::build(db_info, state);
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
@@ -86,11 +86,11 @@ fn main() -> Result<()> {
     // Unique token for each incoming connection.
     let mut unique_token = Token(REPLICA.0 + 1);
 
-    if !db.is_master() {
-        let master_stream_mut = master_stream.as_mut().unwrap();
+    // Only happens for a replica
+    if let Some(master_stream) = master_stream.as_mut() {
         poll.registry()
-            .register(master_stream_mut, REPLICA, Interest::READABLE)?;
-        db.send_ping_to_master(master_stream_mut)?;
+            .register(master_stream, REPLICA, Interest::READABLE)?;
+        db.send_ping_to_master(master_stream)?;
     }
 
     loop {
@@ -163,7 +163,6 @@ fn main() -> Result<()> {
 
 fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<bool> {
     // we only handle readable event not writable events
-    dbg!("V");
     let mut connection_closed = false;
     let mut received_data = vec![0; 512];
     let mut bytes_read = 0;
@@ -172,12 +171,10 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
             Ok(0) => {
                 // Reading 0 bytes means the other side has closed the
                 // connection or is done writing, then so are we.
-                dbg!("B");
                 connection_closed = true;
                 break;
             }
             Ok(n) => {
-                dbg!("C");
                 bytes_read += n;
                 if bytes_read == received_data.len() {
                     received_data.resize(received_data.len() + 512, 0);
@@ -195,23 +192,34 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
-        let redis_command = RedisCommand::try_from(&redis_value)?;
-        let response_redis_value = redis_command.execute(db)?;
 
-        connection.write_all(response_redis_value.to_string().as_bytes())?;
+        if db.is_replica() {
+            match db.state {
+                ConnectionState::Ready => {}
+                ConnectionState::BeforePing => match redis_value.inner_string()?.as_str() {
+                    "PONG" => {
+                        let port = db.port();
+                        let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
+                            "REPLCONF listening-port {}",
+                            port
+                        ));
+                        connection.write_all(redis_value.to_string().as_bytes())?;
+                    }
+                    _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
+                },
+                _ => todo!(),
+            }
+        } else {
+            let redis_command = RedisCommand::try_from(&redis_value)?;
+            let response_redis_value = redis_command.execute(db)?;
 
-        if let RedisCommand::Psync = redis_command {
-            let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
-            connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
-            connection.write_all(&bytes)?;
+            connection.write_all(response_redis_value.to_string().as_bytes())?;
 
-            // let addr = connection.peer_addr().unwrap();
-            // let mut replica_stream = TcpStream::connect(addr)?;
-            // dbg!("1");
-            // replica_stream.write_all(b"1")?;
-            // dbg!("2");
-
-            // db.set_replica_stream(connection);
+            if let RedisCommand::Psync = redis_command {
+                let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
+                connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
+                connection.write_all(&bytes)?;
+            }
         }
 
         // if redis_command.should_forward_to_replicas() {
