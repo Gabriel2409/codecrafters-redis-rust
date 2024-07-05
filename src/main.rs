@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     // Creates the redis db
 
     let mut role = "master".to_string();
-    let mut master_addr = None;
+    let mut master_stream = None;
     match args.replicaof {
         None => {}
         Some(s) => {
@@ -47,14 +47,20 @@ fn main() -> Result<()> {
 
             let arr = s.split_whitespace().collect::<Vec<_>>();
             if arr.len() == 2 {
-                master_addr = format!("{}:{}", arr[0], arr[1]).to_socket_addrs()?.next();
+                let master_addr = format!("{}:{}", arr[0], arr[1])
+                    .to_socket_addrs()?
+                    .next()
+                    .ok_or_else(|| Error::InvaldMasterAddr)?;
+                master_stream = Some(TcpStream::connect(master_addr)?);
             }
         }
     }
 
-    let db_info = DbInfo::build(&role, args.port, master_addr);
+    let db_info = DbInfo::build(&role, args.port);
 
     let mut db = RedisDb::build(db_info);
+
+    db.set_master_stream(master_stream);
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
@@ -75,7 +81,9 @@ fn main() -> Result<()> {
     // Unique token for each incoming connection.
     let mut unique_token = Token(SERVER.0 + 1);
 
-    db.connect_to_master()?;
+    if !db.is_master() {
+        db.send_handshake_to_master()?;
+    }
 
     loop {
         // Poll Mio for events, blocking until we get an event.
@@ -181,9 +189,9 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
             connection.write_all(&bytes)?;
         }
 
-        if redis_command.should_forward_to_replicas() {
-            db.send_to_replica(redis_value)?;
-        }
+        // if redis_command.should_forward_to_replicas() {
+        //     db.send_to_replica(redis_value)?;
+        // }
     }
     if connection_closed {
         return Ok(true);

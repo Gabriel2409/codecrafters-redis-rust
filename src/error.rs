@@ -4,6 +4,9 @@ use crate::{command::RedisCommand, parser::RedisValue};
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Invalid master address")]
+    InvaldMasterAddr,
+
     #[error("Empty command")]
     EmptyCommand,
 

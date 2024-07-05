@@ -36,22 +36,18 @@ pub struct DbInfo {
     role: String,
     port: u16,
 
-    /// Replicas need to refer to master, set by replicaof flag
-    master_addr: Option<SocketAddr>,
-
     master_replid: String,
     master_repl_offset: u64,
 }
 
 impl DbInfo {
-    pub fn build(role: &str, port: u16, master_addr: Option<SocketAddr>) -> Self {
+    pub fn build(role: &str, port: u16) -> Self {
         let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
         let master_repl_offset = 0;
 
         Self {
             role: role.to_string(),
             port,
-            master_addr,
             master_replid,
             master_repl_offset,
         }
@@ -85,6 +81,8 @@ impl InnerRedisDb {
 #[derive(Debug, Clone)]
 pub struct RedisDb {
     inner: Rc<RefCell<InnerRedisDb>>,
+    pub master_stream: Rc<RefCell<Option<TcpStream>>>,
+    // TODO: make a vec
     pub replica_stream: Rc<RefCell<Option<TcpStream>>>,
 }
 
@@ -92,6 +90,7 @@ impl RedisDb {
     pub fn build(info: DbInfo) -> Self {
         Self {
             inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
+            master_stream: Rc::new(RefCell::new(None)),
             replica_stream: Rc::new(RefCell::new(None)),
         }
     }
@@ -117,6 +116,9 @@ impl RedisDb {
         }
     }
 
+    pub fn is_master(&self) -> bool {
+        self.inner.borrow().info.role == "master"
+    }
     pub fn info(&self) -> String {
         self.inner.borrow().info.to_string()
     }
@@ -125,66 +127,135 @@ impl RedisDb {
         self.inner.borrow().info.master_replid.clone()
     }
 
+    pub fn set_master_stream(&mut self, master_stream: Option<TcpStream>) {
+        self.master_stream = Rc::new(RefCell::new(master_stream));
+    }
+
     pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
         self.replica_stream = Rc::new(RefCell::new(Some(replica_stream)));
     }
 
-    pub fn connect_to_master(&self) -> Result<()> {
-        let info = self.inner.borrow().info.clone();
-        if info.role != "slave" {
-            // do nothing for master
-            return Ok(());
-        }
+    pub fn send_handshake_to_master(&self) -> Result<()> {
+        let port = self.inner.borrow().info.port;
 
-        if let Some(master_addr) = info.master_addr {
-            // important to use a std::net stream here, we want blocking calls.
-            let mut stream = std::net::TcpStream::connect(master_addr)?;
+        let mut master_stream_ref = self.master_stream.borrow_mut();
 
+        if let Some(ref mut stream) = *master_stream_ref {
+            dbg!(&stream);
             // Responses from server are small so we don't need a large buffer
             let mut buf = [0; 256];
 
             let redis_value = RedisValue::array_of_bulkstrings_from("PING");
             stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
+
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(bytes_read) => {
+                        let response = String::from_utf8_lossy(&buf[..bytes_read]);
+                        println!("{}", response);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => {
+                        // If it was any other kind of error, something went
+                        // wrong and we terminate with an error.
+                        Err(e)?
+                    }
+                }
+            }
 
             buf.fill(0);
 
-            let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
-                "REPLCONF listening-port {}",
-                info.port
-            ));
+            let redis_value =
+                RedisValue::array_of_bulkstrings_from(&format!("REPLCONF listening-port {}", port));
             stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(bytes_read) => {
+                        let response = String::from_utf8_lossy(&buf[..bytes_read]);
+                        println!("{}", response);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => {
+                        // If it was any other kind of error, something went
+                        // wrong and we terminate with an error.
+                        Err(e)?
+                    }
+                }
+            }
 
             buf.fill(0);
 
             let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
             stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(bytes_read) => {
+                        let response = String::from_utf8_lossy(&buf[..bytes_read]);
+                        println!("{}", response);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => {
+                        // If it was any other kind of error, something went
+                        // wrong and we terminate with an error.
+                        Err(e)?
+                    }
+                }
+            }
 
             buf.fill(0);
             let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
             stream.write_all(redis_value.to_string().as_bytes())?;
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(bytes_read) => {
+                        let response = String::from_utf8_lossy(&buf[..bytes_read]);
+                        println!("{}", response);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => {
+                        // If it was any other kind of error, something went
+                        // wrong and we terminate with an error.
+                        Err(e)?
+                    }
+                }
+            }
 
             // TODO: actually parse length and then read the full rdb file
             // std::thread::sleep(Duration::from_millis(1000));
             buf.fill(0);
-            let bytes_read = stream.read(&mut buf)?;
-            let response = String::from_utf8_lossy(&buf[..bytes_read]);
-            println!("{}", response);
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(bytes_read) => {
+                        let response = String::from_utf8_lossy(&buf[..bytes_read]);
+                        println!("{}", response);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    Err(e) => {
+                        // If it was any other kind of error, something went
+                        // wrong and we terminate with an error.
+                        Err(e)?
+                    }
+                }
+            }
         }
         Ok(())
     }
-    //
+
     pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
         if let Some(ref mut stream) = *self.replica_stream.borrow_mut() {
             stream.write_all(redis_value.to_string().as_bytes())?;
