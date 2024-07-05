@@ -31,7 +31,14 @@ struct Cli {
 // but simplified a lot the writing of data part.
 
 // Some tokens to allow us to identify which event is for which socket.
+
+#[derive(Debug)]
+pub enum State {
+    BeforePing,
+}
+
 const SERVER: Token = Token(0);
+const REPLICA: Token = Token(1);
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -60,8 +67,6 @@ fn main() -> Result<()> {
 
     let mut db = RedisDb::build(db_info);
 
-    db.set_master_stream(master_stream);
-
     // Create a poll instance.
     let mut poll = Poll::new()?;
     // Create storage for events.
@@ -79,10 +84,13 @@ fn main() -> Result<()> {
     // Map of `Token` -> `TcpStream`.
     let mut connections = HashMap::new();
     // Unique token for each incoming connection.
-    let mut unique_token = Token(SERVER.0 + 1);
+    let mut unique_token = Token(REPLICA.0 + 1);
 
     if !db.is_master() {
-        db.send_handshake_to_master()?;
+        let master_stream_mut = master_stream.as_mut().unwrap();
+        poll.registry()
+            .register(master_stream_mut, REPLICA, Interest::READABLE)?;
+        db.send_ping_to_master(master_stream_mut)?;
     }
 
     loop {
@@ -122,6 +130,15 @@ fn main() -> Result<()> {
                         connections.insert(token, connection);
                     }
                 }
+                REPLICA => {
+                    // Handle events for a connection.
+                    // here we force close the connection on error. Probably there is a better
+                    // way
+                    let a = master_stream.as_mut().unwrap();
+                    handle_connection(a, &mut db)
+                        .map_err(|e| dbg!(e))
+                        .unwrap_or(true);
+                }
                 token => {
                     // Handle events for a connection.
                     let done = if let Some(connection) = connections.get_mut(&token) {
@@ -146,6 +163,7 @@ fn main() -> Result<()> {
 
 fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<bool> {
     // we only handle readable event not writable events
+    dbg!("V");
     let mut connection_closed = false;
     let mut received_data = vec![0; 512];
     let mut bytes_read = 0;
@@ -154,10 +172,12 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
             Ok(0) => {
                 // Reading 0 bytes means the other side has closed the
                 // connection or is done writing, then so are we.
+                dbg!("B");
                 connection_closed = true;
                 break;
             }
             Ok(n) => {
+                dbg!("C");
                 bytes_read += n;
                 if bytes_read == received_data.len() {
                     received_data.resize(received_data.len() + 512, 0);
@@ -181,12 +201,17 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
         connection.write_all(response_redis_value.to_string().as_bytes())?;
 
         if let RedisCommand::Psync = redis_command {
-            let addr = connection.peer_addr().unwrap();
-            let replica_stream = TcpStream::connect(addr)?;
-            db.set_replica_stream(replica_stream);
             let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
             connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
             connection.write_all(&bytes)?;
+
+            // let addr = connection.peer_addr().unwrap();
+            // let mut replica_stream = TcpStream::connect(addr)?;
+            // dbg!("1");
+            // replica_stream.write_all(b"1")?;
+            // dbg!("2");
+
+            // db.set_replica_stream(connection);
         }
 
         // if redis_command.should_forward_to_replicas() {
