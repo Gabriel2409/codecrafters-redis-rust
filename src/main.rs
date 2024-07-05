@@ -6,7 +6,6 @@ mod parser;
 pub use crate::error::{Error, Result};
 use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
-use std::time::Duration;
 
 use command::RedisCommand;
 use db::{DbInfo, RedisDb};
@@ -22,7 +21,7 @@ use clap::Parser;
 #[command(version, about="Custom redis", long_about=None )]
 struct Cli {
     #[arg(long, default_value_t = 6379)]
-    port: u64,
+    port: u16,
     #[arg(long)]
     replicaof: Option<String>,
 }
@@ -55,7 +54,7 @@ fn main() -> Result<()> {
 
     let db_info = DbInfo::build(&role, args.port, master_addr);
 
-    let db = RedisDb::build(db_info);
+    let mut db = RedisDb::build(db_info);
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
@@ -75,6 +74,8 @@ fn main() -> Result<()> {
     let mut connections = HashMap::new();
     // Unique token for each incoming connection.
     let mut unique_token = Token(SERVER.0 + 1);
+
+    db.connect_to_master()?;
 
     loop {
         // Poll Mio for events, blocking until we get an event.
@@ -118,7 +119,7 @@ fn main() -> Result<()> {
                     let done = if let Some(connection) = connections.get_mut(&token) {
                         // here we force close the connection on error. Probably there is a better
                         // way
-                        handle_connection(connection, &db)
+                        handle_connection(connection, &mut db)
                             .map_err(|e| dbg!(e))
                             .unwrap_or(true)
                     } else {
@@ -135,7 +136,7 @@ fn main() -> Result<()> {
     }
 }
 
-fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
+fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<bool> {
     // we only handle readable event not writable events
     let mut connection_closed = false;
     let mut received_data = vec![0; 512];
@@ -166,16 +167,22 @@ fn handle_connection(connection: &mut TcpStream, db: &RedisDb) -> Result<bool> {
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
         let (_, redis_value) = parse_redis_value(&input).finish()?;
-        let redis_command = RedisCommand::try_from(redis_value)?;
+        let redis_command = RedisCommand::try_from(&redis_value)?;
         let response_redis_value = redis_command.execute(db)?;
 
         connection.write_all(response_redis_value.to_string().as_bytes())?;
 
-        // TODO:: improve flow - this is pretty bad
-        if response_redis_value.to_string().starts_with("+FULLRESYNC") {
+        if let RedisCommand::Psync = redis_command {
+            let addr = connection.peer_addr().unwrap();
+            let replica_stream = TcpStream::connect(addr)?;
+            db.set_replica_stream(replica_stream);
             let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
             connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
             connection.write_all(&bytes)?;
+        }
+
+        if redis_command.should_forward_to_replicas() {
+            db.send_to_replica(redis_value)?;
         }
     }
     if connection_closed {

@@ -13,10 +13,10 @@ pub enum RedisCommand {
     Psync,
 }
 
-impl TryFrom<RedisValue> for RedisCommand {
+impl TryFrom<&RedisValue> for RedisCommand {
     type Error = Error;
 
-    fn try_from(redis_value: RedisValue) -> Result<Self> {
+    fn try_from(redis_value: &RedisValue) -> Result<Self> {
         match redis_value.clone() {
             RedisValue::Array(nb_elements, arr) => {
                 let (command, args) = arr.split_first().ok_or_else(|| Error::EmptyCommand)?;
@@ -27,26 +27,26 @@ impl TryFrom<RedisValue> for RedisCommand {
                         match val.to_lowercase().as_ref() {
                             "ping" => {
                                 if nb_elements != 1 {
-                                    return Err(Error::InvalidRedisValue(redis_value));
+                                    return Err(Error::InvalidRedisValue(redis_value.clone()));
                                 }
                                 Ok(Self::Ping)
                             }
 
                             "echo" => {
                                 if nb_elements != 2 {
-                                    Err(Error::InvalidRedisValue(redis_value))
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
                                     match &args[0] {
                                         RedisValue::BulkString(_, val) => {
                                             Ok(RedisCommand::Echo(val.clone()))
                                         }
-                                        _ => Err(Error::InvalidRedisValue(redis_value)),
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                                     }
                                 }
                             }
                             "set" => {
                                 if nb_elements != 3 && nb_elements != 5 {
-                                    Err(Error::InvalidRedisValue(redis_value))
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
                                     match (&args[0], &args[1]) {
                                         (
@@ -63,14 +63,14 @@ impl TryFrom<RedisValue> for RedisCommand {
                                                             if px_id.to_lowercase() != "px" {
                                                                 return Err(
                                                                     Error::InvalidRedisValue(
-                                                                        redis_value,
+                                                                        redis_value.clone(),
                                                                     ),
                                                                 );
                                                             }
                                                             Some(px_ms.parse()?)
                                                         }
                                                         _ => Err(Error::InvalidRedisValue(
-                                                            redis_value,
+                                                            redis_value.clone(),
                                                         ))?,
                                                     }
                                                 } else {
@@ -80,56 +80,58 @@ impl TryFrom<RedisValue> for RedisCommand {
 
                                             Ok(RedisCommand::Set(key.clone(), value.clone(), px))
                                         }
-                                        _ => Err(Error::InvalidRedisValue(redis_value)),
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                                     }
                                 }
                             }
 
                             "get" => {
                                 if nb_elements != 2 {
-                                    Err(Error::InvalidRedisValue(redis_value))
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
                                     match &args[0] {
                                         RedisValue::BulkString(_, key) => {
                                             Ok(RedisCommand::Get(key.clone()))
                                         }
-                                        _ => Err(Error::InvalidRedisValue(redis_value)),
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                                     }
                                 }
                             }
                             "info" => {
                                 if nb_elements != 2 {
-                                    Err(Error::InvalidRedisValue(redis_value))
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
                                     match &args[0] {
                                         RedisValue::BulkString(_, info_cmd) => {
                                             Ok(RedisCommand::Info(info_cmd.clone()))
                                         }
-                                        _ => Err(Error::InvalidRedisValue(redis_value)),
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                                     }
                                 }
                             }
                             "replconf" => {
                                 if nb_elements != 3 {
-                                    Err(Error::InvalidRedisValue(redis_value))
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
                                     Ok(RedisCommand::ReplConf)
-                                    // if let ("listening-port", port) =
-                                    //     (args[0].inner_string()?.as_ref(), args[1].inner_string()?)
-                                    // {
-                                    //     let replica_port: u64 = port.parse()?;
-                                    //     db.set_replica_port(replica_port);
-                                    // }
                                 }
+                                // } else if let ("listening-port", port) =
+                                //     (args[0].inner_string()?.as_ref(), args[1].inner_string()?)
+                                // {
+                                //     let replica_port: u16 = port.parse()?;
+                                //     Ok(RedisCommand::ReplConfListeningPort(replica_port))
+                                // } else {
+                                //     Ok(RedisCommand::ReplConfCapa)
+                                // }
                             }
                             "psync" => Ok(RedisCommand::Psync),
-                            _ => Err(Error::InvalidRedisValue(redis_value)),
+                            _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
-                    _ => Err(Error::InvalidRedisValue(redis_value)),
+                    _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                 }
             }
-            _ => Err(Error::InvalidRedisValue(redis_value)),
+            _ => Err(Error::InvalidRedisValue(redis_value.clone())),
         }
     }
 }

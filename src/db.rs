@@ -1,8 +1,14 @@
+use mio::net::TcpStream;
+
+use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+use crate::parser::RedisValue;
 
 #[derive(Debug, Clone)]
 struct DbValue {
@@ -28,7 +34,7 @@ impl DbValue {
 #[derive(Debug, Clone)]
 pub struct DbInfo {
     role: String,
-    port: u64,
+    port: u16,
 
     /// Replicas need to refer to master, set by replicaof flag
     master_addr: Option<SocketAddr>,
@@ -38,7 +44,7 @@ pub struct DbInfo {
 }
 
 impl DbInfo {
-    pub fn build(role: &str, port: u64, master_addr: Option<SocketAddr>) -> Self {
+    pub fn build(role: &str, port: u16, master_addr: Option<SocketAddr>) -> Self {
         let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
         let master_repl_offset = 0;
 
@@ -79,12 +85,14 @@ impl InnerRedisDb {
 #[derive(Debug, Clone)]
 pub struct RedisDb {
     inner: Rc<RefCell<InnerRedisDb>>,
+    pub replica_stream: Rc<RefCell<Option<TcpStream>>>,
 }
 
 impl RedisDb {
     pub fn build(info: DbInfo) -> Self {
         Self {
             inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
+            replica_stream: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -117,71 +125,70 @@ impl RedisDb {
         self.inner.borrow().info.master_replid.clone()
     }
 
-    // pub fn connect_to_master(&self) -> Result<()> {
-    //     let info = self.inner.borrow().info.clone();
-    //     if info.role != "slave" {
-    //         // do nothing for master
-    //         return Ok(());
-    //     }
+    pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
+        self.replica_stream = Rc::new(RefCell::new(Some(replica_stream)));
+    }
+
+    pub fn connect_to_master(&self) -> Result<()> {
+        let info = self.inner.borrow().info.clone();
+        if info.role != "slave" {
+            // do nothing for master
+            return Ok(());
+        }
+
+        if let Some(master_addr) = info.master_addr {
+            // important to use a std::net stream here, we want blocking calls.
+            let mut stream = std::net::TcpStream::connect(master_addr)?;
+
+            // Responses from server are small so we don't need a large buffer
+            let mut buf = [0; 256];
+
+            let redis_value = RedisValue::array_of_bulkstrings_from("PING");
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+
+            buf.fill(0);
+
+            let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
+                "REPLCONF listening-port {}",
+                info.port
+            ));
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+
+            buf.fill(0);
+
+            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+
+            buf.fill(0);
+            let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
+            stream.write_all(redis_value.to_string().as_bytes())?;
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+
+            // TODO: actually parse length and then read the full rdb file
+            // std::thread::sleep(Duration::from_millis(1000));
+            buf.fill(0);
+            let bytes_read = stream.read(&mut buf)?;
+            let response = String::from_utf8_lossy(&buf[..bytes_read]);
+            println!("{}", response);
+        }
+        Ok(())
+    }
     //
-    //     if let Some(master_addr) = info.master_addr {
-    //         // important to use a std::net stream here, we want blocking calls.
-    //         let mut stream = std::net::TcpStream::connect(master_addr)?;
-    //
-    //         // Responses from server are small so we don't need a large buffer
-    //         let mut buf = [0; 256];
-    //
-    //         let redis_value = RedisValue::array_of_bulkstrings_from("PING");
-    //         stream.write_all(redis_value.to_string().as_bytes())?;
-    //         let bytes_read = stream.read(&mut buf)?;
-    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
-    //         println!("{}", response);
-    //
-    //         buf.fill(0);
-    //
-    //         let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
-    //             "REPLCONF listening-port {}",
-    //             info.port
-    //         ));
-    //         stream.write_all(redis_value.to_string().as_bytes())?;
-    //         let bytes_read = stream.read(&mut buf)?;
-    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
-    //         println!("{}", response);
-    //
-    //         buf.fill(0);
-    //
-    //         let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
-    //         stream.write_all(redis_value.to_string().as_bytes())?;
-    //         let bytes_read = stream.read(&mut buf)?;
-    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
-    //         println!("{}", response);
-    //
-    //         buf.fill(0);
-    //         let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
-    //         stream.write_all(redis_value.to_string().as_bytes())?;
-    //         let bytes_read = stream.read(&mut buf)?;
-    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
-    //         println!("{}", response);
-    //
-    //         // TODO: actually parse length and then read the full rdb file
-    //         std::thread::sleep(Duration::from_millis(1000));
-    //         buf.fill(0);
-    //         let bytes_read = stream.read(&mut buf)?;
-    //         let response = String::from_utf8_lossy(&buf[..bytes_read]);
-    //         println!("{}", response);
-    //     }
-    //     Ok(())
-    // }
-    //
-    // pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
-    //     match self.inner.borrow().info.replica_port {
-    //         None => Ok(()),
-    //         Some(port) => {
-    //             let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse()?;
-    //             let mut stream = mio::net::TcpStream::connect(addr)?;
-    //             stream.write_all(redis_value.to_string().as_bytes())?;
-    //             Ok(())
-    //         }
-    //     }
-    // }
+    pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
+        if let Some(ref mut stream) = *self.replica_stream.borrow_mut() {
+            stream.write_all(redis_value.to_string().as_bytes())?;
+        }
+        Ok(())
+    }
 }
