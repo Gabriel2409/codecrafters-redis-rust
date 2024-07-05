@@ -191,7 +191,10 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
     if bytes_read != 0 {
         let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
 
-        let (_, redis_value) = parse_redis_value(&input).finish()?;
+        // TODO: actually parse even the end of the handshake;
+        let (_, redis_value) = parse_redis_value(&input)
+            .finish()
+            .unwrap_or(("aa", RedisValue::NullBulkString));
 
         if db.is_replica() {
             match db.state {
@@ -203,15 +206,37 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
                             "REPLCONF listening-port {}",
                             port
                         ));
+                        db.state = ConnectionState::BeforeReplConf1;
                         connection.write_all(redis_value.to_string().as_bytes())?;
                     }
                     _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
                 },
-                _ => todo!(),
+                ConnectionState::BeforeReplConf1 => match redis_value.inner_string()?.as_str() {
+                    "OK" => {
+                        let redis_value =
+                            RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
+                        db.state = ConnectionState::BeforeReplConf2;
+                        connection.write_all(redis_value.to_string().as_bytes())?;
+                    }
+                    _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
+                },
+                ConnectionState::BeforeReplConf2 => match redis_value.inner_string()?.as_str() {
+                    "OK" => {
+                        let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
+                        db.state = ConnectionState::BeforePsync;
+                        connection.write_all(redis_value.to_string().as_bytes())?;
+                    }
+                    _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
+                },
+                ConnectionState::BeforePsync => {
+                    db.state = ConnectionState::Ready;
+                    // println!("{}", redis_value);
+                }
             }
         } else {
             let redis_command = RedisCommand::try_from(&redis_value)?;
             let response_redis_value = redis_command.execute(db)?;
+            dbg!(&response_redis_value);
 
             connection.write_all(response_redis_value.to_string().as_bytes())?;
 
@@ -219,12 +244,14 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<boo
                 let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
                 connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
                 connection.write_all(&bytes)?;
+                // TODO: Find a way to correctly register the stream
+                // db.set_replica_stream(connection);
+            }
+            if redis_command.should_forward_to_replicas() {
+                dbg!(&db.replica_stream);
+                db.send_to_replica(redis_value)?;
             }
         }
-
-        // if redis_command.should_forward_to_replicas() {
-        //     db.send_to_replica(redis_value)?;
-        // }
     }
     if connection_closed {
         return Ok(true);
