@@ -130,17 +130,17 @@ fn parse_crlf(input: &str) -> IResult<&str, &str> {
     tag("\r\n")(input)
 }
 
-fn parse_bulkstring_length(input: &str) -> IResult<&str, usize> {
-    let (input, _) = tag("$")(input)?;
-    let (input, word_length) = complete::u32(input)?;
-    let (input, _) = parse_crlf(input)?;
-    Ok((input, word_length as usize))
-}
-
 fn parse_bulkstring_word(input: &str, length: usize) -> IResult<&str, &str> {
     let (input, word) = take(length)(input)?;
     let (input, _) = parse_crlf(input)?;
     Ok((input, word))
+}
+
+pub fn parse_rdb_length(input: &str) -> IResult<&str, i64> {
+    let (input, symbol) = parse_symbol(input)?;
+    // TODO: check symbol is $
+    let (input, length) = parse_redis_int(input)?;
+    Ok((input, length))
 }
 
 #[cfg(test)]

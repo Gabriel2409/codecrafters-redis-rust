@@ -5,7 +5,7 @@ mod error;
 mod parser;
 
 pub use crate::error::{Error, Result};
-use crate::parser::RedisValue;
+use crate::parser::{parse_rdb_length, RedisValue};
 use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
 
@@ -214,9 +214,9 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
         let input = String::from_utf8_lossy(connection_data.get_received_data()).to_string();
 
         // TODO: for now the RDB file is not parsed correctly
-        let (_, redis_value) = parse_redis_value(&input)
+        let (mut input, mut redis_value) = parse_redis_value(&input)
             .finish()
-            .unwrap_or(("TODO:parseRBDFile", RedisValue::NullBulkString));
+            .unwrap_or(("", RedisValue::NullBulkString));
 
         match db.state {
             ConnectionState::BeforePing => match redis_value {
@@ -252,14 +252,35 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
             }
             ConnectionState::BeforeRdbFile => {
                 // TODO: parse rdb file
+                let received_data = connection_data.get_received_data();
+                let position = find_crlf_position(received_data).unwrap();
+
+                let begin = String::from_utf8_lossy(&received_data[..position + 2]).to_string();
+
+                let (begin, length) = parse_rdb_length(&begin).finish()?;
+
+                //TODO: check beginis empty
+
+                let rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
+
+                let end_bytes = &received_data[position + 2 + length as usize..];
+                let mut end_input = String::from_utf8_lossy(end_bytes).to_string();
+
                 db.state = ConnectionState::Ready;
             }
             ConnectionState::Ready => {
                 let redis_command = RedisCommand::try_from(&redis_value)?;
                 let response_redis_value = redis_command.execute(db)?;
-
                 // replica does not need to answer to master so we don't write back
                 // connection.write_all(response_redis_value.to_string().as_bytes())?;
+
+                // sometimes, we get multiple commands at once
+                // so we need to handle them
+                while !input.is_empty() {
+                    (input, redis_value) = parse_redis_value(input).finish()?;
+                    let redis_command = RedisCommand::try_from(&redis_value)?;
+                    let response_redis_value = redis_command.execute(db)?;
+                }
             }
         }
     }
@@ -267,4 +288,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
         return Ok(true);
     }
     Ok(false)
+}
+fn find_crlf_position(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(2).position(|window| window == b"\r\n")
 }
