@@ -276,6 +276,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
 
                 // sometimes, we get multiple commands at once
                 // so we need to handle them
+                // NOTE: we could instead have a function level loop
                 while !input.is_empty() {
                     (input, redis_value) = parse_redis_value(input).finish()?;
                     let redis_command = RedisCommand::try_from(&redis_value)?;
