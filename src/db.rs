@@ -93,7 +93,7 @@ pub struct RedisDb {
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     // TODO: make a vec
-    pub replica_stream: Rc<RefCell<Option<TcpStream>>>,
+    pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
 }
 
 impl RedisDb {
@@ -101,7 +101,7 @@ impl RedisDb {
         Self {
             state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
-            replica_stream: Rc::new(RefCell::new(None)),
+            replica_streams: Vec::new(),
         }
     }
 
@@ -141,7 +141,8 @@ impl RedisDb {
     }
 
     pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
-        self.replica_stream = Rc::new(RefCell::new(Some(replica_stream)));
+        self.replica_streams
+            .push(Rc::new(RefCell::new(replica_stream)));
     }
 
     /// Starts the handshake process: A replica sends a ping to the master
@@ -151,119 +152,16 @@ impl RedisDb {
 
         let redis_value = RedisValue::array_of_bulkstrings_from("PING");
         stream.write_all(redis_value.to_string().as_bytes())?;
-
-        //     loop {
-        //         match stream.read(&mut buf) {
-        //             Ok(bytes_read) => {
-        //                 let response = String::from_utf8_lossy(&buf[..bytes_read]);
-        //                 println!("{}", response);
-        //                 break;
-        //             }
-        //             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-        //                 std::thread::sleep(Duration::from_millis(200));
-        //             }
-        //             Err(e) => {
-        //                 // If it was any other kind of error, something went
-        //                 // wrong and we terminate with an error.
-        //                 Err(e)?
-        //             }
-        //         }
-        //     }
-        //
-        //     buf.fill(0);
-        //
-        //     let redis_value =
-        //         RedisValue::array_of_bulkstrings_from(&format!("REPLCONF listening-port {}", port));
-        //     stream.write_all(redis_value.to_string().as_bytes())?;
-        //     loop {
-        //         match stream.read(&mut buf) {
-        //             Ok(bytes_read) => {
-        //                 let response = String::from_utf8_lossy(&buf[..bytes_read]);
-        //                 println!("{}", response);
-        //                 break;
-        //             }
-        //             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-        //                 std::thread::sleep(Duration::from_millis(200));
-        //             }
-        //             Err(e) => {
-        //                 // If it was any other kind of error, something went
-        //                 // wrong and we terminate with an error.
-        //                 Err(e)?
-        //             }
-        //         }
-        //     }
-        //
-        //     buf.fill(0);
-        //
-        //     let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
-        //     stream.write_all(redis_value.to_string().as_bytes())?;
-        //     loop {
-        //         match stream.read(&mut buf) {
-        //             Ok(bytes_read) => {
-        //                 let response = String::from_utf8_lossy(&buf[..bytes_read]);
-        //                 println!("{}", response);
-        //                 break;
-        //             }
-        //             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-        //                 std::thread::sleep(Duration::from_millis(200));
-        //             }
-        //             Err(e) => {
-        //                 // If it was any other kind of error, something went
-        //                 // wrong and we terminate with an error.
-        //                 Err(e)?
-        //             }
-        //         }
-        //     }
-        //
-        //     buf.fill(0);
-        //     let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
-        //     stream.write_all(redis_value.to_string().as_bytes())?;
-        //     loop {
-        //         match stream.read(&mut buf) {
-        //             Ok(bytes_read) => {
-        //                 let response = String::from_utf8_lossy(&buf[..bytes_read]);
-        //                 println!("{}", response);
-        //                 break;
-        //             }
-        //             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-        //                 std::thread::sleep(Duration::from_millis(200));
-        //             }
-        //             Err(e) => {
-        //                 // If it was any other kind of error, something went
-        //                 // wrong and we terminate with an error.
-        //                 Err(e)?
-        //             }
-        //         }
-        //     }
-        //
-        //     // TODO: actually parse length and then read the full rdb file
-        //     // std::thread::sleep(Duration::from_millis(1000));
-        //     buf.fill(0);
-        //     loop {
-        //         match stream.read(&mut buf) {
-        //             Ok(bytes_read) => {
-        //                 let response = String::from_utf8_lossy(&buf[..bytes_read]);
-        //                 println!("{}", response);
-        //                 break;
-        //             }
-        //             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-        //                 std::thread::sleep(Duration::from_millis(200));
-        //             }
-        //             Err(e) => {
-        //                 // If it was any other kind of error, something went
-        //                 // wrong and we terminate with an error.
-        //                 Err(e)?
-        //             }
-        //         }
-        //     }
         Ok(())
     }
 
     pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
-        if let Some(ref mut stream) = *self.replica_stream.borrow_mut() {
-            dbg!(&stream);
-            stream.write_all(redis_value.to_string().as_bytes())?;
+        for stream in self.replica_streams.iter() {
+            stream
+                .borrow_mut()
+                .write_all(redis_value.to_string().as_bytes())?;
         }
+
         Ok(())
     }
 }
