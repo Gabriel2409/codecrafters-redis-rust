@@ -17,6 +17,7 @@ pub enum ConnectionState {
     BeforeReplConf1,
     BeforeReplConf2,
     BeforePsync,
+    BeforeRdbFile,
 }
 
 #[derive(Debug, Clone)]
@@ -140,7 +141,6 @@ impl RedisDb {
     }
 
     pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
-        dbg!(&replica_stream);
         self.replica_stream = Rc::new(RefCell::new(Some(replica_stream)));
     }
 

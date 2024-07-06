@@ -1,4 +1,5 @@
 mod command;
+mod connection_data;
 mod db;
 mod error;
 mod parser;
@@ -9,6 +10,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::ToSocketAddrs;
 
 use command::RedisCommand;
+use connection_data::ConnectionData;
 use db::{ConnectionState, DbInfo, RedisDb};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
@@ -134,10 +136,10 @@ fn main() -> Result<()> {
                     // Handle events for a connection.
                     // here we force close the connection on error. Probably there is a better
                     // way
-                    let a = master_stream.as_mut().unwrap();
-                    handle_connection(a, &mut db)
+                    let master_stream_mut = master_stream.as_mut().unwrap();
+                    let _ = handle_master_connection(master_stream_mut, &mut db)
                         .map_err(|e| dbg!(e))
-                        .unwrap_or((true, false));
+                        .unwrap_or(true);
                 }
                 token => {
                     // Handle events for a connection.
@@ -150,6 +152,7 @@ fn main() -> Result<()> {
                     } else {
                         (false, false)
                     };
+                    // register is there to handle replica connections to master
                     if done || register {
                         if let Some(mut connection) = connections.remove(&token) {
                             if done {
@@ -166,46 +169,58 @@ fn main() -> Result<()> {
     }
 }
 
+/// When a client connects to the server
 fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bool, bool)> {
     // we only handle readable event not writable events
-    let mut connection_closed = false;
-    let mut received_data = vec![0; 512];
-    let mut bytes_read = 0;
-    loop {
-        match connection.read(&mut received_data[bytes_read..]) {
-            Ok(0) => {
-                // Reading 0 bytes means the other side has closed the
-                // connection or is done writing, then so are we.
-                connection_closed = true;
-                break;
-            }
-            Ok(n) => {
-                bytes_read += n;
-                if bytes_read == received_data.len() {
-                    received_data.resize(received_data.len() + 512, 0);
-                }
-            }
-            // Would block "errors" are the OS's way of saying that the
-            // connection is not actually ready to perform this I/O operation.
-            Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-            // Other errors we'll consider fatal.
-            Err(e) => Err(e)?,
+
+    let connection_data = ConnectionData::receive_data(connection)?;
+
+    // Whether we should register the replica stream or not
+    let mut register = false;
+    if connection_data.bytes_read != 0 {
+        let input = String::from_utf8_lossy(connection_data.get_received_data()).to_string();
+
+        let (_, redis_value) = parse_redis_value(&input).finish()?;
+
+        let redis_command = RedisCommand::try_from(&redis_value)?;
+        let response_redis_value = redis_command.execute(db)?;
+
+        connection.write_all(response_redis_value.to_string().as_bytes())?;
+
+        if let RedisCommand::Psync = redis_command {
+            register = true;
+            let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
+            connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
+            connection.write_all(&bytes)?;
+        }
+        if redis_command.should_forward_to_replicas() {
+            db.send_to_replica(redis_value)?;
         }
     }
+    if connection_data.connection_closed {
+        return Ok((true, register));
+    }
+    Ok((false, register))
+}
 
-    let mut register = false;
-    if bytes_read != 0 {
-        let input = String::from_utf8_lossy(&received_data[..bytes_read]).to_string();
+/// When a connection comes from master,
+/// either as part of the handshake or when it was forwared to replicas
+fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<bool> {
+    // we only handle readable event not writable events
 
-        // TODO: actually parse even the end of the handshake;
-        // and saves it correctly
+    let connection_data = ConnectionData::receive_data(connection)?;
+
+    if connection_data.bytes_read != 0 {
+        let input = String::from_utf8_lossy(connection_data.get_received_data()).to_string();
+
+        // TODO: for now the RDB file is not parsed correctly
         let (_, redis_value) = parse_redis_value(&input)
             .finish()
-            .unwrap_or(("aa", RedisValue::NullBulkString));
+            .unwrap_or(("TODO:parseRBDFile", RedisValue::NullBulkString));
 
         match db.state {
-            ConnectionState::BeforePing => match redis_value.inner_string()?.as_str() {
-                "PONG" => {
+            ConnectionState::BeforePing => match redis_value {
+                RedisValue::SimpleString(x) if x == *"PONG" => {
                     let port = db.port();
                     let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
                         "REPLCONF listening-port {}",
@@ -216,16 +231,16 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
                 }
                 _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
             },
-            ConnectionState::BeforeReplConf1 => match redis_value.inner_string()?.as_str() {
-                "OK" => {
+            ConnectionState::BeforeReplConf1 => match redis_value {
+                RedisValue::SimpleString(x) if x == *"OK" => {
                     let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF capa psync2");
                     db.state = ConnectionState::BeforeReplConf2;
                     connection.write_all(redis_value.to_string().as_bytes())?;
                 }
                 _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
             },
-            ConnectionState::BeforeReplConf2 => match redis_value.inner_string()?.as_str() {
-                "OK" => {
+            ConnectionState::BeforeReplConf2 => match redis_value {
+                RedisValue::SimpleString(x) if x == *"OK" => {
                     let redis_value = RedisValue::array_of_bulkstrings_from("PSYNC ? -1");
                     db.state = ConnectionState::BeforePsync;
                     connection.write_all(redis_value.to_string().as_bytes())?;
@@ -233,33 +248,23 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
                 _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
             },
             ConnectionState::BeforePsync => {
+                db.state = ConnectionState::BeforeRdbFile;
+            }
+            ConnectionState::BeforeRdbFile => {
+                // TODO: parse rdb file
                 db.state = ConnectionState::Ready;
-                // println!("{}", redis_value);
             }
             ConnectionState::Ready => {
                 let redis_command = RedisCommand::try_from(&redis_value)?;
                 let response_redis_value = redis_command.execute(db)?;
-                dbg!(&response_redis_value);
 
-                connection.write_all(response_redis_value.to_string().as_bytes())?;
-
-                if let RedisCommand::Psync = redis_command {
-                    register = true;
-                    let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
-                    connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
-                    connection.write_all(&bytes)?;
-                    // TODO: Find a way to correctly register the stream
-                    // db.set_replica_stream(connection);
-                }
-                if redis_command.should_forward_to_replicas() {
-                    dbg!(&db.replica_stream);
-                    db.send_to_replica(redis_value)?;
-                }
+                // replica does not need to answer to master so we don't write back
+                // connection.write_all(response_redis_value.to_string().as_bytes())?;
             }
         }
     }
-    if connection_closed {
-        return Ok((true, register));
+    if connection_data.connection_closed {
+        return Ok(true);
     }
-    Ok((false, register))
+    Ok(false)
 }
