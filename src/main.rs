@@ -203,7 +203,7 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             // connection.write_all(redis_value.to_string().as_bytes())?;
         }
 
-        // TODO: DRY with master conn
+        // TODO: DRY
         while !input.is_empty() {
             (input, redis_value) = parse_redis_value(input).finish()?;
             let redis_command = RedisCommand::try_from(&redis_value)?;
