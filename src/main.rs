@@ -185,6 +185,9 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
         let redis_command = RedisCommand::try_from(&redis_value)?;
         let response_redis_value = redis_command.execute(db)?;
 
+        // TODO: PROBABLY a better way
+        db.processed_bytes += redis_value.to_string().as_bytes().len();
+
         connection.write_all(response_redis_value.to_string().as_bytes())?;
 
         if let RedisCommand::Psync = redis_command {
@@ -284,6 +287,8 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     if let RedisCommand::ReplConfGetAck = redis_command {
                         connection.write_all(response_redis_value.to_string().as_bytes())?;
                     }
+                    // TODO: PROBABLY a better way
+                    db.processed_bytes += redis_value.to_string().as_bytes().len();
                 }
 
                 db.state = ConnectionState::Ready;
@@ -305,6 +310,8 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     let redis_command = RedisCommand::try_from(&redis_value)?;
                     let response_redis_value = redis_command.execute(db)?;
                 }
+                // TODO: PROBABLY a better way
+                db.processed_bytes += redis_value.to_string().as_bytes().len();
             }
         }
     }

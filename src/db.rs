@@ -93,6 +93,7 @@ pub struct RedisDb {
     inner: Rc<RefCell<InnerRedisDb>>,
     // TODO: make a vec
     pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
+    pub processed_bytes: usize,
 }
 
 impl RedisDb {
@@ -101,6 +102,7 @@ impl RedisDb {
             state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
             replica_streams: Vec::new(),
+            processed_bytes: 0,
         }
     }
 

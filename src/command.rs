@@ -178,7 +178,12 @@ impl RedisCommand {
                 _ => Err(Error::InvalidRedisCommand(self.clone())),
             },
             Self::ReplConf => Ok(RedisValue::SimpleString("OK".to_string())),
-            Self::ReplConfGetAck => Ok(RedisValue::array_of_bulkstrings_from("REPLCONF ACK 0")),
+            // Self::ReplConfGetAck => Ok(RedisValue::array_of_bulkstrings_from("REPLCONF ACK 0")),
+            Self::ReplConfGetAck => {
+                let answer = format!("REPLCONF ACK {}", db.processed_bytes);
+
+                Ok(RedisValue::array_of_bulkstrings_from(&answer))
+            }
             Self::Psync => {
                 let master_replid = db.master_replid();
                 Ok(RedisValue::SimpleString(format!(
