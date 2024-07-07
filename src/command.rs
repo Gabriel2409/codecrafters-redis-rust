@@ -10,6 +10,7 @@ pub enum RedisCommand {
     Get(String),
     Info(String),
     ReplConf,
+    ReplConfGetAck,
     Psync,
 }
 
@@ -112,6 +113,12 @@ impl TryFrom<&RedisValue> for RedisCommand {
                             "replconf" => {
                                 if nb_elements != 3 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else if let ("GETACK", "*") = (
+                                    args[0].inner_string()?.as_ref(),
+                                    args[1].inner_string()?.as_ref(),
+                                ) {
+                                    // this is actually what the master sends the replica
+                                    Ok(RedisCommand::ReplConfGetAck)
                                 } else {
                                     Ok(RedisCommand::ReplConf)
                                 }
@@ -171,6 +178,7 @@ impl RedisCommand {
                 _ => Err(Error::InvalidRedisCommand(self.clone())),
             },
             Self::ReplConf => Ok(RedisValue::SimpleString("OK".to_string())),
+            Self::ReplConfGetAck => Ok(RedisValue::array_of_bulkstrings_from("REPLCONF ACK 0")),
             Self::Psync => {
                 let master_replid = db.master_replid();
                 Ok(RedisValue::SimpleString(format!(

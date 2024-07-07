@@ -6,7 +6,7 @@ mod parser;
 
 pub use crate::error::{Error, Result};
 use crate::parser::{parse_rdb_length, RedisValue};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
 
 use command::RedisCommand;
@@ -192,7 +192,14 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             let bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
             connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
             connection.write_all(&bytes)?;
+
+            // NOTE: In fact, replconf getack * is a command launched by the cli,
+            // it is not automatically sent by master so we must handle it after
+
+            // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+            // connection.write_all(redis_value.to_string().as_bytes())?;
         }
+
         if redis_command.should_forward_to_replicas() {
             db.send_to_replica(redis_value)?;
         }
@@ -264,7 +271,20 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                 let rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
 
                 let end_bytes = &received_data[position + 2 + length as usize..];
-                let mut end_input = String::from_utf8_lossy(end_bytes).to_string();
+                let end_input = String::from_utf8_lossy(end_bytes).to_string();
+
+                let mut input = end_input.as_str();
+                // TODO: DRY with Ready
+                while !input.is_empty() {
+                    (input, redis_value) = parse_redis_value(input).finish()?;
+                    let redis_command = RedisCommand::try_from(&redis_value)?;
+                    let response_redis_value = redis_command.execute(db)?;
+                    // replica does not need to answer to master so we don't write back
+                    // except for the ReplConf Ack
+                    if let RedisCommand::ReplConfGetAck = redis_command {
+                        connection.write_all(response_redis_value.to_string().as_bytes())?;
+                    }
+                }
 
                 db.state = ConnectionState::Ready;
             }
@@ -272,7 +292,10 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                 let redis_command = RedisCommand::try_from(&redis_value)?;
                 let response_redis_value = redis_command.execute(db)?;
                 // replica does not need to answer to master so we don't write back
-                // connection.write_all(response_redis_value.to_string().as_bytes())?;
+                // except for the ReplConf Ack
+                if let RedisCommand::ReplConfGetAck = redis_command {
+                    connection.write_all(response_redis_value.to_string().as_bytes())?;
+                }
 
                 // sometimes, we get multiple commands at once
                 // so we need to handle them

@@ -3,8 +3,7 @@ use mio::net::TcpStream;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::io::Write;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 

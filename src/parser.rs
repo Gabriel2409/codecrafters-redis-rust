@@ -103,14 +103,10 @@ pub fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
             }
             Ok((input, RedisValue::Array(nb_elements, redis_values)))
         }
-        _ => todo!(),
+        _ => {
+            todo!()
+        }
     }
-}
-
-#[derive(Debug)]
-pub struct RedisSentence {
-    pub nb_words: usize,
-    pub words: Vec<String>,
 }
 
 fn parse_symbol(input: &str) -> IResult<&str, char> {
