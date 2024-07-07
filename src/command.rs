@@ -12,6 +12,7 @@ pub enum RedisCommand {
     ReplConf,
     ReplConfGetAck,
     Psync,
+    Wait,
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -132,6 +133,13 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 // }
                             }
                             "psync" => Ok(RedisCommand::Psync),
+                            "wait" => {
+                                if nb_elements != 3 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    Ok(RedisCommand::Wait)
+                                }
+                            }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -190,6 +198,7 @@ impl RedisCommand {
                     master_replid
                 )))
             }
+            Self::Wait => Ok(RedisValue::Integer(0)),
         }
     }
 }
