@@ -185,10 +185,11 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
         let redis_command = RedisCommand::try_from(&redis_value)?;
         let response_redis_value = redis_command.execute(db)?;
 
-        // TODO: PROBABLY a better way
-        db.processed_bytes += redis_value.to_string().as_bytes().len();
+        let processed_bytes = redis_value.to_string().as_bytes().len();
 
         connection.write_all(response_redis_value.to_string().as_bytes())?;
+
+        db.processed_bytes += processed_bytes;
 
         if let RedisCommand::Psync = redis_command {
             register = true;
@@ -208,9 +209,12 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             (input, redis_value) = parse_redis_value(input).finish()?;
             let redis_command = RedisCommand::try_from(&redis_value)?;
             let response_redis_value = redis_command.execute(db)?;
+
+            let processed_bytes = redis_value.to_string().as_bytes().len();
+
             connection.write_all(response_redis_value.to_string().as_bytes())?;
-            // TODO: PROBABLY a better way
-            db.processed_bytes += redis_value.to_string().as_bytes().len();
+
+            db.processed_bytes += processed_bytes;
         }
 
         if redis_command.should_forward_to_replicas() {
@@ -294,11 +298,14 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     let response_redis_value = redis_command.execute(db)?;
                     // replica does not need to answer to master so we don't write back
                     // except for the ReplConf Ack
+
+                    let processed_bytes = redis_value.to_string().as_bytes().len();
+
                     if let RedisCommand::ReplConfGetAck = redis_command {
                         connection.write_all(response_redis_value.to_string().as_bytes())?;
                     }
                     // TODO: PROBABLY a better way
-                    db.processed_bytes += redis_value.to_string().as_bytes().len();
+                    db.processed_bytes += processed_bytes;
                 }
 
                 db.state = ConnectionState::Ready;
@@ -308,9 +315,13 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                 let response_redis_value = redis_command.execute(db)?;
                 // replica does not need to answer to master so we don't write back
                 // except for the ReplConf Ack
+
+                let processed_bytes = redis_value.to_string().as_bytes().len();
                 if let RedisCommand::ReplConfGetAck = redis_command {
                     connection.write_all(response_redis_value.to_string().as_bytes())?;
                 }
+                // TODO: PROBABLY a better way
+                db.processed_bytes += processed_bytes;
 
                 // sometimes, we get multiple commands at once
                 // so we need to handle them
@@ -318,10 +329,14 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                 while !input.is_empty() {
                     (input, redis_value) = parse_redis_value(input).finish()?;
                     let redis_command = RedisCommand::try_from(&redis_value)?;
+
+                    let processed_bytes = redis_value.to_string().as_bytes().len();
                     let response_redis_value = redis_command.execute(db)?;
+                    if let RedisCommand::ReplConfGetAck = redis_command {
+                        connection.write_all(response_redis_value.to_string().as_bytes())?;
+                    }
+                    db.processed_bytes += processed_bytes;
                 }
-                // TODO: PROBABLY a better way
-                db.processed_bytes += redis_value.to_string().as_bytes().len();
             }
         }
     }
