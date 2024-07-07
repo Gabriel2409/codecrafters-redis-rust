@@ -198,7 +198,7 @@ impl RedisCommand {
                     master_replid
                 )))
             }
-            Self::Wait => Ok(RedisValue::Integer(0)),
+            Self::Wait => Ok(RedisValue::Integer(db.replica_streams.len() as i64)),
         }
     }
 }
