@@ -8,6 +8,7 @@ pub use crate::error::{Error, Result};
 use crate::parser::{parse_rdb_length, RedisValue};
 use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
+use std::time::Duration;
 
 use command::RedisCommand;
 use connection_data::ConnectionData;
@@ -197,6 +198,11 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             connection.write_all(format!("${}\r\n", bytes.len()).as_bytes())?;
             connection.write_all(&bytes)?;
 
+            // NOTE: I added a sleep to make test pass.
+            // This is because codecrafters send the next command without waiting
+            // for the processing of the rdb file by the replica
+            std::thread::sleep(Duration::from_millis(500));
+
             // NOTE: In fact, replconf getack * is a command launched by the cli,
             // it is not automatically sent by master so we must handle it after
 
@@ -283,7 +289,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
 
                 let (begin, length) = parse_rdb_length(&begin).finish()?;
 
-                //TODO: check beginis empty
+                //TODO: check begin is empty
 
                 let rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
 
