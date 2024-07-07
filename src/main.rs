@@ -180,7 +180,7 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
     if connection_data.bytes_read != 0 {
         let input = String::from_utf8_lossy(connection_data.get_received_data()).to_string();
 
-        let (_, redis_value) = parse_redis_value(&input).finish()?;
+        let (mut input, mut redis_value) = parse_redis_value(&input).finish()?;
 
         let redis_command = RedisCommand::try_from(&redis_value)?;
         let response_redis_value = redis_command.execute(db)?;
@@ -201,6 +201,16 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
 
             // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
             // connection.write_all(redis_value.to_string().as_bytes())?;
+        }
+
+        // TODO: DRY
+        while !input.is_empty() {
+            (input, redis_value) = parse_redis_value(input).finish()?;
+            let redis_command = RedisCommand::try_from(&redis_value)?;
+            let response_redis_value = redis_command.execute(db)?;
+            connection.write_all(response_redis_value.to_string().as_bytes())?;
+            // TODO: PROBABLY a better way
+            db.processed_bytes += redis_value.to_string().as_bytes().len();
         }
 
         if redis_command.should_forward_to_replicas() {
