@@ -1,5 +1,6 @@
 use mio::net::TcpStream;
 
+use crate::token::TokenTrack;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -92,6 +93,7 @@ pub struct RedisDb {
     inner: Rc<RefCell<InnerRedisDb>>,
     pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
     pub processed_bytes: usize,
+    pub token_track: TokenTrack,
 }
 
 impl RedisDb {
@@ -102,6 +104,7 @@ impl RedisDb {
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replica_streams: Vec::new(),
             processed_bytes: 0,
+            token_track: TokenTrack::new(),
         }
     }
 

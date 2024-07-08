@@ -3,6 +3,7 @@ mod connection_data;
 mod db;
 mod error;
 mod parser;
+mod token;
 
 pub use crate::error::{Error, Result};
 use crate::parser::{parse_rdb_length, RedisValue};
@@ -18,6 +19,7 @@ use mio::{Events, Interest, Poll, Token};
 use nom::Finish;
 use parser::parse_redis_value;
 use std::collections::HashMap;
+use token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 
 use clap::Parser;
 
@@ -33,13 +35,6 @@ struct Cli {
 // heavily inspired by
 // https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs
 // but simplified a lot the writing of data part.
-
-// Some tokens to allow us to identify which event is for which socket.
-
-// Standard way to accept commands
-const SERVER: Token = Token(0);
-// When registering a replica, the associated connection is registered with this token
-const REPLICA: Token = Token(1);
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -85,14 +80,12 @@ fn main() -> Result<()> {
         .register(&mut server, SERVER, Interest::READABLE)?;
 
     // Map of `Token` -> `TcpStream`.
-    let mut connections = HashMap::new();
-    // Unique token for each incoming connection.
-    let mut unique_token = Token(REPLICA.0 + 1);
+    let mut connections: HashMap<Token, TcpStream> = HashMap::new();
 
     // Only happens for a replica
     if let Some(master_stream) = master_stream.as_mut() {
         poll.registry()
-            .register(master_stream, REPLICA, Interest::READABLE)?;
+            .register(master_stream, MASTER, Interest::READABLE)?;
         db.send_ping_to_master(master_stream)?;
     }
 
@@ -122,8 +115,7 @@ fn main() -> Result<()> {
                             }
                         };
 
-                        let token = Token(unique_token.0);
-                        unique_token = Token(unique_token.0 + 1);
+                        let token = db.token_track.next_unique_token();
 
                         poll.registry().register(
                             &mut connection,
@@ -133,7 +125,7 @@ fn main() -> Result<()> {
                         connections.insert(token, connection);
                     }
                 }
-                REPLICA => {
+                MASTER => {
                     // Handle events for a connection.
                     // here we force close the connection on error. Probably there is a better
                     // way
@@ -142,6 +134,11 @@ fn main() -> Result<()> {
                         .map_err(|e| dbg!(e))
                         .unwrap_or(true);
                 }
+                // here we are in a replica
+                token if token.0 < FIRST_UNIQUE_TOKEN.0 => {
+                    dbg!("FUSRODA");
+                }
+
                 token => {
                     // Handle events for a connection.
                     let (done, register) = if let Some(connection) = connections.get_mut(&token) {
@@ -160,6 +157,13 @@ fn main() -> Result<()> {
                                 poll.registry().deregister(&mut connection)?;
                             }
                             if register {
+                                // TODO: where to register?
+                                poll.registry().deregister(&mut connection)?;
+                                poll.registry().register(
+                                    &mut connection,
+                                    db.token_track.next_replica_token(),
+                                    Interest::READABLE,
+                                )?;
                                 db.set_replica_stream(connection);
                             }
                         }
