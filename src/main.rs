@@ -184,6 +184,19 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
         let (mut input, mut redis_value) = parse_redis_value(&input).finish()?;
 
         let redis_command = RedisCommand::try_from(&redis_value)?;
+
+        if let RedisCommand::Wait(nb_replica, timeout) = redis_command {
+            if db.processed_bytes == 0 {
+                let response_redis_value = RedisValue::Integer(db.replica_streams.len() as i64);
+                connection.write_all(response_redis_value.to_string().as_bytes())?;
+            } else {
+                let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+                db.send_to_replica(redis_value)?;
+            }
+
+            return Ok((true, false));
+        }
+
         let response_redis_value = redis_command.execute(db)?;
 
         let processed_bytes = redis_value.to_string().as_bytes().len();
@@ -250,7 +263,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
         match db.state {
             ConnectionState::BeforePing => match redis_value {
                 RedisValue::SimpleString(x) if x == *"PONG" => {
-                    let port = db.port();
+                    let port = db.info.port;
                     let redis_value = RedisValue::array_of_bulkstrings_from(&format!(
                         "REPLCONF listening-port {}",
                         port

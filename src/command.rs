@@ -12,7 +12,7 @@ pub enum RedisCommand {
     ReplConf,
     ReplConfGetAck,
     Psync,
-    Wait,
+    Wait(u64, u64),
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -137,9 +137,21 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 if nb_elements != 3 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
-                                    Ok(RedisCommand::Wait)
+                                    match (&args[0], &args[1]) {
+                                        (
+                                            RedisValue::BulkString(_, nb_replica),
+                                            RedisValue::BulkString(_, timeout),
+                                        ) => {
+                                            let nb_replica = nb_replica.parse()?;
+                                            let timeout = timeout.parse()?;
+
+                                            Ok(RedisCommand::Wait(nb_replica, timeout))
+                                        }
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
+                                    }
                                 }
                             }
+
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -179,7 +191,7 @@ impl RedisCommand {
             }
             Self::Info(x) => match x.as_str() {
                 "replication" => {
-                    let answer = db.info();
+                    let answer = db.info.to_string();
 
                     Ok(RedisValue::BulkString(answer.len(), answer))
                 }
@@ -192,13 +204,16 @@ impl RedisCommand {
                 Ok(RedisValue::array_of_bulkstrings_from(&answer))
             }
             Self::Psync => {
-                let master_replid = db.master_replid();
+                let master_replid = db.info.master_replid.clone();
                 Ok(RedisValue::SimpleString(format!(
                     "FULLRESYNC {} 0",
                     master_replid
                 )))
             }
-            Self::Wait => Ok(RedisValue::Integer(db.replica_streams.len() as i64)),
+            Self::Wait(nb_replica, timeout) => {
+                // Wait shoudl not be executed in a standard way
+                todo!()
+            }
         }
     }
 }

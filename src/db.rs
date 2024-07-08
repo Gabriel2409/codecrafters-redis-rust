@@ -3,7 +3,7 @@ use mio::net::TcpStream;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -42,11 +42,11 @@ impl DbValue {
 
 #[derive(Debug, Clone)]
 pub struct DbInfo {
-    role: String,
-    port: u16,
+    pub role: String,
+    pub port: u16,
 
-    master_replid: String,
-    master_repl_offset: u64,
+    pub master_replid: String,
+    pub master_repl_offset: u64,
 }
 
 impl DbInfo {
@@ -74,14 +74,12 @@ impl std::fmt::Display for DbInfo {
 
 #[derive(Debug, Clone)]
 struct InnerRedisDb {
-    info: DbInfo, // Example of another field
     store: HashMap<String, DbValue>,
 }
 
 impl InnerRedisDb {
-    pub fn build(info: DbInfo) -> Self {
+    pub fn build() -> Self {
         Self {
-            info,
             store: HashMap::new(),
         }
     }
@@ -89,9 +87,9 @@ impl InnerRedisDb {
 
 #[derive(Debug, Clone)]
 pub struct RedisDb {
+    pub info: DbInfo,
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
-    // TODO: make a vec
     pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
     pub processed_bytes: usize,
 }
@@ -99,8 +97,9 @@ pub struct RedisDb {
 impl RedisDb {
     pub fn build(info: DbInfo, state: ConnectionState) -> Self {
         Self {
+            info,
             state,
-            inner: Rc::new(RefCell::new(InnerRedisDb::build(info))),
+            inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replica_streams: Vec::new(),
             processed_bytes: 0,
         }
@@ -128,17 +127,7 @@ impl RedisDb {
     }
 
     pub fn is_replica(&self) -> bool {
-        self.inner.borrow().info.role == "slave"
-    }
-    pub fn info(&self) -> String {
-        self.inner.borrow().info.to_string()
-    }
-    pub fn port(&self) -> u16 {
-        self.inner.borrow().info.port
-    }
-
-    pub fn master_replid(&self) -> String {
-        self.inner.borrow().info.master_replid.clone()
+        self.info.role == "slave"
     }
 
     pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
