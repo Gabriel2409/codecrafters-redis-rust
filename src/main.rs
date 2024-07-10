@@ -233,7 +233,6 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             let obtained_replicas = obtained_replicas + 1;
             if obtained_replicas >= requested_replicas {
                 db.state = ConnectionState::Ready;
-                println!("{}", obtained_replicas);
                 return Ok((true, false));
             }
         }
@@ -278,9 +277,8 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             // NOTE: In fact, replconf getack * is a command launched by the cli,
             // it is not automatically sent by master so we must handle it after
 
-            println!("BEFORE MASTER SEND REPLCONF GETACK *");
-            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-            connection.write_all(redis_value.to_string().as_bytes())?;
+            // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+            // connection.write_all(redis_value.to_string().as_bytes())?;
         }
 
         // TODO: DRY
@@ -385,7 +383,6 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     let processed_bytes = redis_value.to_string().as_bytes().len();
 
                     if let RedisCommand::ReplConfGetAck = redis_command {
-                        println!("BEFORE REPLICA ANSWER ACK");
                         connection.write_all(response_redis_value.to_string().as_bytes())?;
                     }
                     // TODO: PROBABLY a better way
