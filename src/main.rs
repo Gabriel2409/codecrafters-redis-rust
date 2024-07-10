@@ -129,7 +129,7 @@ fn main() -> Result<()> {
         // }
 
         // Poll Mio for events, blocking until we get an event or for 100 ms.
-        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
+        poll.poll(&mut events, Some(Duration::from_millis(50)))?;
 
         // Process each event.
         for event in events.iter() {
