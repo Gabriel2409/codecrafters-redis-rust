@@ -11,7 +11,7 @@ pub use crate::error::{Error, Result};
 use crate::parser::RedisValue;
 use crate::token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 
-use connection_handler::{handle_connection, handle_master_connection};
+use connection_handler::handle_connection;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use std::collections::HashMap;
@@ -128,9 +128,9 @@ fn main() -> Result<()> {
 
                     // TODO: combine handle_master_connection and handle_connection ?
                     let master_stream_mut = master_stream.as_mut().unwrap();
-                    let _ = handle_master_connection(master_stream_mut, &mut db)
+                    let (_, _) = handle_connection(master_stream_mut, &mut db, true)
                         .map_err(|e| dbg!(e))
-                        .unwrap_or(true);
+                        .unwrap_or((true, false));
                 }
                 token => {
                     if let ConnectionState::Waiting(
@@ -155,7 +155,7 @@ fn main() -> Result<()> {
                     let (done, register) = if let Some(connection) = connections.get_mut(&token) {
                         // here we force close the connection on error. Probably there is a better
                         // way
-                        handle_connection(connection, &mut db)
+                        handle_connection(connection, &mut db, false)
                             .map_err(|e| dbg!(e))
                             .unwrap_or((true, false))
                     } else {
