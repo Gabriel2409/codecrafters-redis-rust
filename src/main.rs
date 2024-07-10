@@ -14,7 +14,7 @@ use crate::token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 use connection_handler::handle_connection;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};
@@ -35,6 +35,7 @@ struct Cli {
 // but simplified a lot the writing of data part.
 
 fn main() -> Result<()> {
+    let mut waiting_tokens = VecDeque::new();
     let args = Cli::parse();
 
     let mut role = "master".to_string();
@@ -88,6 +89,45 @@ fn main() -> Result<()> {
     }
 
     loop {
+        if let ConnectionState::Ready = db.state {
+            if !waiting_tokens.is_empty() {
+                let token = waiting_tokens.pop_front().unwrap();
+                let (done, register) = if let Some(connection) = connections.get_mut(&token) {
+                    // here we force close the connection on error. Probably there is a better
+                    // way
+                    handle_connection(connection, &mut db, false)
+                        .map_err(|e| dbg!(e))
+                        .unwrap_or((true, false))
+                } else {
+                    (false, false)
+                };
+                // register is there to handle replica connections to master
+                if done || register {
+                    if let Some(mut connection) = connections.remove(&token) {
+                        if register {
+                            // Here we register the connection with the correct token so
+                            // that we can differentiate connections from replicas and
+                            // connections from other clients.
+                            poll.registry().deregister(&mut connection)?;
+                            let replica_token = db.token_track.next_replica_token();
+
+                            poll.registry().register(
+                                &mut connection,
+                                replica_token,
+                                Interest::READABLE.add(Interest::WRITABLE),
+                            )?;
+                            db.set_replica_stream(connection);
+                        } else if done {
+                            poll.registry().deregister(&mut connection)?;
+                            if let ConnectionState::Waiting(_, _, _, _) = db.state {
+                                db.set_waiting_connection(connection);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Poll Mio for events, blocking until we get an event or for 100 ms.
         poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
@@ -147,6 +187,8 @@ fn main() -> Result<()> {
                                 requested_replicas,
                                 obtained_replicas + 1,
                             );
+                        } else {
+                            waiting_tokens.push_back(token);
                         }
                         continue;
                     }
