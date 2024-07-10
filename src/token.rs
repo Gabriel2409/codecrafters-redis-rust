@@ -35,7 +35,9 @@ impl TokenTrack {
     pub fn next_replica_token(&mut self) -> Token {
         let token = Token(self.replica_token.0);
         self.replica_token = Token(self.replica_token.0 + 1);
-        // TODO: prevent token from going over 20
+        if self.replica_token.0 > FIRST_UNIQUE_TOKEN.0 {
+            panic!("Nb of maximum replicas exceeded")
+        }
         token
     }
 }

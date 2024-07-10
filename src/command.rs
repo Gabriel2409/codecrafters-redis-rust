@@ -2,6 +2,9 @@ use crate::db::RedisDb;
 use crate::parser::RedisValue;
 use crate::{Error, Result};
 
+/// Purpose of this enum is to convert a given redis value to
+/// the appropriate command to be executed.
+/// It only handles Arrays.
 #[derive(Debug, Clone)]
 pub enum RedisCommand {
     Ping,
@@ -9,9 +12,13 @@ pub enum RedisCommand {
     Set(String, String, Option<u64>),
     Get(String),
     Info(String),
+    /// All replconfs except for GETACK *
     ReplConf,
+    /// GETACK has a special treatment as it is the only command that asks the replica to write
+    /// back
     ReplConfGetAck,
     Psync,
+    /// Wait for nb_replicas with a timeout is ms
     Wait(u64, u64),
 }
 
@@ -211,7 +218,8 @@ impl RedisCommand {
                 )))
             }
             Self::Wait(nb_replica, timeout) => {
-                // Wait shoudl not be executed in a standard way
+                // Wait should not be executed in a standard way
+                // It should instead modify the db state
                 todo!()
             }
         }
