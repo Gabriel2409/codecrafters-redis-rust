@@ -231,6 +231,7 @@ fn main() -> Result<()> {
             }
         }
 
+        // TODO: move in function
         if let ConnectionState::Waiting(
             inititial_time,
             timeout,
