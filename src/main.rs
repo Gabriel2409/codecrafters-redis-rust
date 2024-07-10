@@ -95,7 +95,6 @@ fn main() -> Result<()> {
 
         // Process each event.
         for event in events.iter() {
-            println!("AA");
             match event.token() {
                 SERVER => {
                     // If this is an event for the server, it means a connection is ready to be accepted.
@@ -136,10 +135,8 @@ fn main() -> Result<()> {
                         .unwrap_or(true);
                 }
                 // here we are in a replica
-                token if token.0 < FIRST_UNIQUE_TOKEN.0 => {
-                    dbg!("FUSRODA");
-                }
-
+                // token if token.0 < FIRST_UNIQUE_TOKEN.0 => {
+                // }
                 token => {
                     if let ConnectionState::Waiting(
                         intitial_time,
@@ -148,12 +145,15 @@ fn main() -> Result<()> {
                         obtained_replicas,
                     ) = db.state
                     {
-                        db.state = ConnectionState::Waiting(
-                            intitial_time,
-                            timeout,
-                            requested_replicas,
-                            obtained_replicas + 1,
-                        );
+                        if token.0 < FIRST_UNIQUE_TOKEN.0 {
+                            db.state = ConnectionState::Waiting(
+                                intitial_time,
+                                timeout,
+                                requested_replicas,
+                                obtained_replicas + 1,
+                            );
+                        }
+
                         continue;
                     }
 
@@ -177,6 +177,14 @@ fn main() -> Result<()> {
                                 }
                             } else if register {
                                 // TODO: where to register?
+                                poll.registry().deregister(&mut connection)?;
+                                let replica_token = db.token_track.next_replica_token();
+
+                                poll.registry().register(
+                                    &mut connection,
+                                    replica_token,
+                                    Interest::READABLE.add(Interest::WRITABLE),
+                                )?;
                                 db.set_replica_stream(connection);
                             }
                         }
@@ -209,7 +217,6 @@ fn main() -> Result<()> {
 /// When a client connects to the server
 fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bool, bool)> {
     // we only handle readable event not writable events
-    dbg!("AFTER WAIT");
 
     let connection_data = ConnectionData::receive_data(connection)?;
 
@@ -223,7 +230,6 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             obtained_replicas,
         ) = db.state
         {
-            dbg!("AAA");
             let obtained_replicas = obtained_replicas + 1;
             if obtained_replicas >= requested_replicas {
                 db.state = ConnectionState::Ready;
@@ -245,7 +251,6 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
                 nb_replicas,
                 0,
             );
-            dbg!("WAIT");
             let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
             db.send_to_replica(redis_value)?;
 
@@ -397,7 +402,6 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
 
                 let processed_bytes = redis_value.to_string().as_bytes().len();
                 if let RedisCommand::ReplConfGetAck = redis_command {
-                    dbg!("OOO");
                     connection.write_all(response_redis_value.to_string().as_bytes())?;
                 }
                 // TODO: PROBABLY a better way
