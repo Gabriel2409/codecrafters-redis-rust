@@ -9,7 +9,7 @@ pub use crate::error::{Error, Result};
 use crate::parser::{parse_rdb_length, RedisValue};
 use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use command::RedisCommand;
 use connection_data::ConnectionData;
@@ -91,10 +91,11 @@ fn main() -> Result<()> {
 
     loop {
         // Poll Mio for events, blocking until we get an event.
-        poll.poll(&mut events, None)?;
+        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
         // Process each event.
         for event in events.iter() {
+            println!("AA");
             match event.token() {
                 SERVER => {
                     // If this is an event for the server, it means a connection is ready to be accepted.
@@ -140,6 +141,22 @@ fn main() -> Result<()> {
                 }
 
                 token => {
+                    if let ConnectionState::Waiting(
+                        intitial_time,
+                        timeout,
+                        requested_replicas,
+                        obtained_replicas,
+                    ) = db.state
+                    {
+                        db.state = ConnectionState::Waiting(
+                            intitial_time,
+                            timeout,
+                            requested_replicas,
+                            obtained_replicas + 1,
+                        );
+                        continue;
+                    }
+
                     // Handle events for a connection.
                     let (done, register) = if let Some(connection) = connections.get_mut(&token) {
                         // here we force close the connection on error. Probably there is a better
@@ -155,19 +172,34 @@ fn main() -> Result<()> {
                         if let Some(mut connection) = connections.remove(&token) {
                             if done {
                                 poll.registry().deregister(&mut connection)?;
-                            }
-                            if register {
+                                if let ConnectionState::Waiting(_, _, _, _) = db.state {
+                                    db.set_waiting_connection(connection);
+                                }
+                            } else if register {
                                 // TODO: where to register?
-                                poll.registry().deregister(&mut connection)?;
-                                poll.registry().register(
-                                    &mut connection,
-                                    db.token_track.next_replica_token(),
-                                    Interest::READABLE,
-                                )?;
                                 db.set_replica_stream(connection);
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if let ConnectionState::Waiting(
+            inititial_time,
+            timeout,
+            requested_replicas,
+            obtained_replicas,
+        ) = db.state
+        {
+            if obtained_replicas >= requested_replicas || inititial_time + timeout <= Instant::now()
+            {
+                let redis_value = RedisValue::Integer(obtained_replicas as i64);
+                if let Some(waiting_connection) = db.waiting_connection.take() {
+                    waiting_connection
+                        .borrow_mut()
+                        .write_all(redis_value.to_string().as_bytes())?;
+                    db.state = ConnectionState::Ready;
                 }
             }
         }
@@ -177,26 +209,45 @@ fn main() -> Result<()> {
 /// When a client connects to the server
 fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bool, bool)> {
     // we only handle readable event not writable events
+    dbg!("AFTER WAIT");
 
     let connection_data = ConnectionData::receive_data(connection)?;
 
     // Whether we should register the replica stream or not
     let mut register = false;
     if connection_data.bytes_read != 0 {
+        if let ConnectionState::Waiting(
+            intitial_time,
+            timeout,
+            requested_replicas,
+            obtained_replicas,
+        ) = db.state
+        {
+            dbg!("AAA");
+            let obtained_replicas = obtained_replicas + 1;
+            if obtained_replicas >= requested_replicas {
+                db.state = ConnectionState::Ready;
+                println!("{}", obtained_replicas);
+                return Ok((true, false));
+            }
+        }
+
         let input = String::from_utf8_lossy(connection_data.get_received_data()).to_string();
 
         let (mut input, mut redis_value) = parse_redis_value(&input).finish()?;
 
         let redis_command = RedisCommand::try_from(&redis_value)?;
 
-        if let RedisCommand::Wait(nb_replica, timeout) = redis_command {
-            if db.processed_bytes == 0 {
-                let response_redis_value = RedisValue::Integer(db.replica_streams.len() as i64);
-                connection.write_all(response_redis_value.to_string().as_bytes())?;
-            } else {
-                let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-                db.send_to_replica(redis_value)?;
-            }
+        if let RedisCommand::Wait(nb_replicas, timeout) = redis_command {
+            db.state = ConnectionState::Waiting(
+                Instant::now(),
+                Duration::from_millis(timeout),
+                nb_replicas,
+                0,
+            );
+            dbg!("WAIT");
+            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+            db.send_to_replica(redis_value)?;
 
             return Ok((true, false));
         }
@@ -222,8 +273,9 @@ fn handle_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Result<(bo
             // NOTE: In fact, replconf getack * is a command launched by the cli,
             // it is not automatically sent by master so we must handle it after
 
-            // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-            // connection.write_all(redis_value.to_string().as_bytes())?;
+            println!("BEFORE MASTER SEND REPLCONF GETACK *");
+            let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+            connection.write_all(redis_value.to_string().as_bytes())?;
         }
 
         // TODO: DRY
@@ -328,6 +380,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     let processed_bytes = redis_value.to_string().as_bytes().len();
 
                     if let RedisCommand::ReplConfGetAck = redis_command {
+                        println!("BEFORE REPLICA ANSWER ACK");
                         connection.write_all(response_redis_value.to_string().as_bytes())?;
                     }
                     // TODO: PROBABLY a better way
@@ -344,6 +397,7 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
 
                 let processed_bytes = redis_value.to_string().as_bytes().len();
                 if let RedisCommand::ReplConfGetAck = redis_command {
+                    dbg!("OOO");
                     connection.write_all(response_redis_value.to_string().as_bytes())?;
                 }
                 // TODO: PROBABLY a better way
@@ -363,6 +417,10 @@ fn handle_master_connection(connection: &mut TcpStream, db: &mut RedisDb) -> Res
                     }
                     db.processed_bytes += processed_bytes;
                 }
+            }
+            ConnectionState::Waiting(_, _, _, _) => {
+                // should not happen
+                unreachable!()
             }
         }
     }

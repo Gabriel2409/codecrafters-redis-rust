@@ -1,4 +1,5 @@
 use mio::net::TcpStream;
+use mio::{Events, Interest, Poll, Token};
 
 use crate::token::TokenTrack;
 use crate::Result;
@@ -13,6 +14,7 @@ use crate::parser::RedisValue;
 #[derive(Debug, Clone)]
 pub enum ConnectionState {
     Ready,
+    Waiting(Instant, Duration, u64, u64),
     BeforePing,
     BeforeReplConf1,
     BeforeReplConf2,
@@ -92,6 +94,7 @@ pub struct RedisDb {
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
+    pub waiting_connection: Option<Rc<RefCell<TcpStream>>>,
     pub processed_bytes: usize,
     pub token_track: TokenTrack,
 }
@@ -104,6 +107,7 @@ impl RedisDb {
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replica_streams: Vec::new(),
             processed_bytes: 0,
+            waiting_connection: None,
             token_track: TokenTrack::new(),
         }
     }
@@ -136,6 +140,10 @@ impl RedisDb {
     pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
         self.replica_streams
             .push(Rc::new(RefCell::new(replica_stream)));
+    }
+
+    pub fn set_waiting_connection(&mut self, waiting_connection: TcpStream) {
+        self.waiting_connection = Some(Rc::new(RefCell::new(waiting_connection)));
     }
 
     /// Starts the handshake process: A replica sends a ping to the master
