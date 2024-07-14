@@ -51,10 +51,12 @@ pub struct DbInfo {
 
     pub master_replid: String,
     pub master_repl_offset: u64,
+    pub dir: String,
+    pub dbfilename: String,
 }
 
 impl DbInfo {
-    pub fn build(role: &str, port: u16) -> Self {
+    pub fn build(role: &str, port: u16, dir: &str, dbfilename: &str) -> Self {
         let master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string();
         let master_repl_offset = 0;
 
@@ -63,6 +65,8 @@ impl DbInfo {
             port,
             master_replid,
             master_repl_offset,
+            dir: dir.to_string(),
+            dbfilename: dbfilename.to_string(),
         }
     }
 }

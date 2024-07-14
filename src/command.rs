@@ -20,6 +20,7 @@ pub enum RedisCommand {
     Psync,
     /// Wait for nb_replicas with a timeout is ms
     Wait(u64, u64),
+    ConfigGet(String),
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -158,6 +159,27 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     }
                                 }
                             }
+                            "config" => {
+                                if nb_elements != 3 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    match (&args[0], &args[1]) {
+                                        (
+                                            RedisValue::BulkString(_, get),
+                                            RedisValue::BulkString(_, val),
+                                        ) => {
+                                            if get.to_lowercase() != "get" {
+                                                return Err(Error::InvalidRedisValue(
+                                                    redis_value.clone(),
+                                                ));
+                                            }
+
+                                            Ok(RedisCommand::ConfigGet(val.to_string()))
+                                        }
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
+                                    }
+                                }
+                            }
 
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
@@ -222,6 +244,17 @@ impl RedisCommand {
                 // It should instead modify the db state
                 todo!()
             }
+            Self::ConfigGet(val) => match val.as_str() {
+                "dir" => Ok(RedisValue::array_of_bulkstrings_from(&format!(
+                    "dir {}",
+                    db.info.dir
+                ))),
+                "dbfilename" => Ok(RedisValue::array_of_bulkstrings_from(&format!(
+                    "dbfilename {}",
+                    db.info.dbfilename
+                ))),
+                _ => Err(Error::InvalidRedisCommand(self.clone())),
+            },
         }
     }
 }

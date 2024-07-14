@@ -29,6 +29,10 @@ struct Cli {
     port: u16,
     #[arg(long)]
     replicaof: Option<String>,
+    #[arg(long, default_value_t = String::from("/tmp/redis-files"))]
+    dir: String,
+    #[arg(long, default_value_t = String::from("dump.rdb"))]
+    dbfilename: String,
 }
 
 // heavily inspired by
@@ -61,7 +65,7 @@ fn main() -> Result<()> {
     }
 
     // Creates the redis db
-    let db_info = DbInfo::build(&role, args.port);
+    let db_info = DbInfo::build(&role, args.port, &args.dir, &args.dbfilename);
     let mut db = RedisDb::build(db_info, state);
 
     // Create a poll instance.
