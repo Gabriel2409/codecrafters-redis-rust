@@ -137,8 +137,8 @@ pub fn handle_connection(
                     // NOTE: In fact, replconf getack * is a command launched by the cli,
                     // it is not automatically sent by master so we must handle it after
 
-                    let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-                    connection.write_all(redis_value.to_string().as_bytes())?;
+                    // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+                    // connection.write_all(redis_value.to_string().as_bytes())?;
                 }
 
                 if redis_command.should_forward_to_replicas() {
