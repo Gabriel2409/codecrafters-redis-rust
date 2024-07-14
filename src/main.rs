@@ -4,6 +4,7 @@ mod connection_handler;
 mod db;
 mod error;
 mod parser;
+mod replica;
 mod token;
 
 use crate::db::{ConnectionState, DbInfo, RedisDb};
@@ -192,6 +193,7 @@ fn main() -> Result<()> {
                                 requested_replicas,
                                 obtained_replicas + 1,
                             );
+                            db.mark_replica_as_uptodate(token);
                         } else {
                             waiting_tokens.push_back(token);
                         }
@@ -223,7 +225,7 @@ fn main() -> Result<()> {
                                     replica_token,
                                     Interest::READABLE.add(Interest::WRITABLE),
                                 )?;
-                                db.set_replica_stream(connection);
+                                db.register_replica(connection, replica_token);
                             } else if done {
                                 poll.registry().deregister(&mut connection)?;
                                 if let ConnectionState::Waiting(_, _, _, _) = db.state {

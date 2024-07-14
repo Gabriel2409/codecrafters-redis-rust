@@ -103,10 +103,10 @@ pub fn handle_connection(
                         Instant::now(),
                         Duration::from_millis(timeout),
                         nb_replicas,
-                        0,
+                        db.get_nb_uptodate_replicas() as u64,
                     );
                     let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-                    db.send_to_replica(redis_value)?;
+                    db.send_to_replicas(redis_value, true)?;
 
                     return Ok((true, false));
                 }
@@ -137,12 +137,13 @@ pub fn handle_connection(
                     // NOTE: In fact, replconf getack * is a command launched by the cli,
                     // it is not automatically sent by master so we must handle it after
 
-                    // let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
-                    // connection.write_all(redis_value.to_string().as_bytes())?;
+                    let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
+                    connection.write_all(redis_value.to_string().as_bytes())?;
                 }
 
                 if redis_command.should_forward_to_replicas() {
-                    db.send_to_replica(redis_value)?;
+                    db.mark_replicas_as_outdated();
+                    db.send_to_replicas(redis_value, false)?;
                 }
             }
         }

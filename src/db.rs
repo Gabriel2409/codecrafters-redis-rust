@@ -1,6 +1,7 @@
 use mio::net::TcpStream;
 use mio::{Events, Interest, Poll, Token};
 
+use crate::replica::Replica;
 use crate::token::TokenTrack;
 use crate::Result;
 use std::cell::RefCell;
@@ -88,12 +89,12 @@ impl InnerRedisDb {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RedisDb {
     pub info: DbInfo,
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
-    pub replica_streams: Vec<Rc<RefCell<TcpStream>>>,
+    pub replicas: Vec<Replica>,
     pub waiting_connection: Option<Rc<RefCell<TcpStream>>>,
     pub processed_bytes: usize,
     pub token_track: TokenTrack,
@@ -105,7 +106,7 @@ impl RedisDb {
             info,
             state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
-            replica_streams: Vec::new(),
+            replicas: Vec::new(),
             processed_bytes: 0,
             waiting_connection: None,
             token_track: TokenTrack::new(),
@@ -137,9 +138,26 @@ impl RedisDb {
         self.info.role == "slave"
     }
 
-    pub fn set_replica_stream(&mut self, replica_stream: TcpStream) {
-        self.replica_streams
-            .push(Rc::new(RefCell::new(replica_stream)));
+    pub fn register_replica(&mut self, replica_stream: TcpStream, replica_token: Token) {
+        self.replicas
+            .push(Replica::new(replica_stream, replica_token));
+    }
+
+    pub fn get_nb_uptodate_replicas(&self) -> usize {
+        self.replicas.iter().filter(|r| r.up_to_date).count()
+    }
+    pub fn mark_replicas_as_outdated(&mut self) {
+        for replica in self.replicas.iter_mut() {
+            replica.up_to_date = false;
+        }
+    }
+
+    pub fn mark_replica_as_uptodate(&mut self, token: Token) {
+        self.replicas
+            .iter_mut()
+            .find(|replica| replica.token == token)
+            .expect("Replica should exist")
+            .up_to_date = true;
     }
 
     pub fn set_waiting_connection(&mut self, waiting_connection: TcpStream) {
@@ -156,9 +174,13 @@ impl RedisDb {
         Ok(())
     }
 
-    pub fn send_to_replica(&self, redis_value: RedisValue) -> Result<()> {
-        for stream in self.replica_streams.iter() {
-            stream
+    pub fn send_to_replicas(&self, redis_value: RedisValue, ignore_up_to_date: bool) -> Result<()> {
+        for replica in self.replicas.iter() {
+            if replica.up_to_date && ignore_up_to_date {
+                continue;
+            }
+            replica
+                .stream
                 .borrow_mut()
                 .write_all(redis_value.to_string().as_bytes())?;
         }
