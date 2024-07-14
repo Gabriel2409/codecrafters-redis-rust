@@ -36,7 +36,6 @@ struct Cli {
 // but simplified a lot the writing of data part.
 
 fn main() -> Result<()> {
-    let mut waiting_tokens = VecDeque::new();
     let args = Cli::parse();
 
     let mut role = "master".to_string();
@@ -89,51 +88,15 @@ fn main() -> Result<()> {
         db.send_ping_to_master(master_stream)?;
     }
 
+    // tracks client calling wait. Note that we can only handle one wait.
+    let mut waiting_token = None;
+
     //TODO:
     // master keeps track of current replication offset of each connected replica.
     // At each write, it updates the values of each offset. On a wait, it compares the updated
     // value with the current value for each replica and only sends a getack if needed. If not, it
     // does not need to send a wait.
     loop {
-        // if let ConnectionState::Ready = db.state {
-        //     if !waiting_tokens.is_empty() {
-        //         let token = waiting_tokens.pop_front().unwrap();
-        //         let (done, register) = if let Some(connection) = connections.get_mut(&token) {
-        //             // here we force close the connection on error. Probably there is a better
-        //             // way
-        //             handle_connection(connection, &mut db, false)
-        //                 .map_err(|e| dbg!(e))
-        //                 .unwrap_or((true, false))
-        //         } else {
-        //             (false, false)
-        //         };
-        //         // register is there to handle replica connections to master
-        //         if done || register {
-        //             if let Some(mut connection) = connections.remove(&token) {
-        //                 if register {
-        //                     // Here we register the connection with the correct token so
-        //                     // that we can differentiate connections from replicas and
-        //                     // connections from other clients.
-        //                     poll.registry().deregister(&mut connection)?;
-        //                     let replica_token = db.token_track.next_replica_token();
-        //
-        //                     poll.registry().register(
-        //                         &mut connection,
-        //                         replica_token,
-        //                         Interest::READABLE.add(Interest::WRITABLE),
-        //                     )?;
-        //                     db.set_replica_stream(connection);
-        //                 } else if done {
-        //                     poll.registry().deregister(&mut connection)?;
-        //                     if let ConnectionState::Waiting(_, _, _, _) = db.state {
-        //                         db.set_waiting_connection(connection);
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         // Poll Mio for events, blocking until we get an event or for 100 ms.
         poll.poll(&mut events, Some(Duration::from_millis(50)))?;
 
@@ -194,8 +157,6 @@ fn main() -> Result<()> {
                                 obtained_replicas + 1,
                             );
                             db.mark_replica_as_uptodate(token);
-                        } else {
-                            waiting_tokens.push_back(token);
                         }
                         continue;
                     }
@@ -210,16 +171,18 @@ fn main() -> Result<()> {
                     } else {
                         (false, false)
                     };
+
                     // register is there to handle replica connections to master
                     if done || register {
-                        if let Some(mut connection) = connections.remove(&token) {
+                        if let ConnectionState::Waiting(_, _, _, _) = db.state {
+                            waiting_token = Some(token);
+                        } else if let Some(mut connection) = connections.remove(&token) {
                             if register {
                                 // Here we register the connection with the correct token so
                                 // that we can differentiate connections from replicas and
                                 // connections from other clients.
                                 poll.registry().deregister(&mut connection)?;
                                 let replica_token = db.token_track.next_replica_token();
-
                                 poll.registry().register(
                                     &mut connection,
                                     replica_token,
@@ -228,9 +191,6 @@ fn main() -> Result<()> {
                                 db.register_replica(connection, replica_token);
                             } else if done {
                                 poll.registry().deregister(&mut connection)?;
-                                if let ConnectionState::Waiting(_, _, _, _) = db.state {
-                                    db.set_waiting_connection(connection);
-                                }
                             }
                         }
                     }
@@ -249,10 +209,11 @@ fn main() -> Result<()> {
             if obtained_replicas >= requested_replicas || inititial_time + timeout <= Instant::now()
             {
                 let redis_value = RedisValue::Integer(obtained_replicas as i64);
-                if let Some(waiting_connection) = db.waiting_connection.take() {
-                    waiting_connection
-                        .borrow_mut()
-                        .write_all(redis_value.to_string().as_bytes())?;
+
+                if let Some(waiting_connection) =
+                    connections.get_mut(&waiting_token.expect("Waiting token should be set"))
+                {
+                    waiting_connection.write_all(redis_value.to_string().as_bytes())?;
                     db.state = ConnectionState::Ready;
                 }
             }
