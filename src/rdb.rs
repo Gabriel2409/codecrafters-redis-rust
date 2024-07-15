@@ -10,9 +10,10 @@ pub struct Rdb {
     /// Metadata section
     #[br(parse_with=parse_auxiliary_fields)]
     auxiliary_fields: Vec<AuxiliaryField>,
-
-    #[br(count = 1)]
+    #[br(parse_with=parse_database_sections)]
     database_sections: Vec<DatabaseSection>,
+    #[brw(magic = 0xFFu8)]
+    checksum: u64,
 }
 
 // region: header
@@ -97,13 +98,34 @@ pub struct DatabaseSection {
     #[brw(magic = 0xFBu8)]
     hash_table_size: LengthEncoding,
     expire_hash_table_size: LengthEncoding,
+    #[br(count = hash_table_size.length)]
+    pub fields_with_expiry: Vec<DatabaseField>,
+}
 
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct DatabaseField {
     expiration: Expiration,
-    /// One byte flag
     value_type: ValueTypeEncoding,
     key: StringEncodedField,
     // TODO: implement encoding for other types
     value: StringEncodedField,
+}
+
+#[binrw::parser(reader, endian)]
+fn parse_database_sections() -> BinResult<Vec<DatabaseSection>> {
+    let mut database_sections = Vec::new();
+
+    loop {
+        let byte = u8::read_options(reader, endian, ())?;
+        reader.seek(SeekFrom::Current(-1))?;
+        if byte == 0xFF {
+            break;
+        }
+        database_sections.push(DatabaseSection::read_options(reader, endian, ())?);
+    }
+    Ok(database_sections)
 }
 
 // endregion: database section
@@ -305,10 +327,13 @@ impl BinRead for Expiration {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> BinResult<Self> {
+        dbg!(0);
         let byte = u8::read_options(reader, endian, args)?;
         match byte {
             0xFC => {
+                dbg!("1");
                 let expiry_time = u64::read_options(reader, endian, args)?;
+                dbg!("2");
 
                 Ok(Self {
                     is_second: false,
@@ -316,7 +341,9 @@ impl BinRead for Expiration {
                 })
             }
             0xFD => {
+                dbg!("3");
                 let expiry_time = u32::read_options(reader, endian, args)?;
+                dbg!("4");
                 Ok(Self {
                     is_second: true,
                     expiry_time: Some(expiry_time as u64),
@@ -324,8 +351,10 @@ impl BinRead for Expiration {
             }
 
             _ => {
+                dbg!("5");
                 // go back
                 reader.seek(SeekFrom::Current(-1))?;
+                dbg!("6");
                 Ok(Self {
                     is_second: true,
                     expiry_time: None,
@@ -335,7 +364,6 @@ impl BinRead for Expiration {
     }
 }
 
-// TODO:
 impl BinWrite for Expiration {
     type Args<'a> = ();
 
