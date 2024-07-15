@@ -4,6 +4,7 @@ mod connection_handler;
 mod db;
 mod error;
 mod parser;
+mod rdb;
 mod replica;
 mod token;
 
