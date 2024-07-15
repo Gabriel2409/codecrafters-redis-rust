@@ -1,4 +1,4 @@
-use binrw::{binrw, BinRead, BinResult};
+use binrw::{binread, binrw, BinRead, BinResult, BinWrite};
 
 use crate::{Error, Result};
 
@@ -7,7 +7,11 @@ use crate::{Error, Result};
 #[brw(little)]
 pub struct Rdb {
     header: RdbHeader,
+    #[br(count = 2)]
+    auxiliary_fields: Vec<AuxiliaryField>,
 }
+
+// region: header
 
 #[derive(Debug)]
 #[binrw]
@@ -18,8 +22,6 @@ pub struct RdbHeader {
     #[br(parse_with=parse_version)]
     #[bw(write_with=write_version)]
     pub redis_version: u8,
-    #[brw(magic = 0xFAu8)]
-    bb: AuxiliaryField,
 }
 
 #[binrw::parser(reader)]
@@ -50,48 +52,159 @@ fn write_version(version: &u8) -> BinResult<()> {
     Ok(())
 }
 
+// endregion: header
+
 #[derive(Debug)]
 #[binrw]
 #[brw(little)]
 pub struct AuxiliaryField {
-    key: StringEncodedField,
-    value: StringEncodedField,
+    #[brw(magic = 0xFAu8)]
+    pub key: StringEncodedField,
+    pub value: StringEncodedField,
 }
+
+// region: string encoded field
 
 #[derive(Debug)]
-#[binrw]
-#[brw(little)]
 pub struct StringEncodedField {
-    // TODO: write
-    #[br(parse_with=parse_length_encoding)]
-    length: u32,
-    #[br(count=length, map = |x: Vec<u8>| String::from_utf8_lossy(&x).to_string() )]
-    #[bw(map = |x| x.as_bytes())]
-    field: String,
+    /// Whether the msb is 11 or not
+    /// This is useful for writing so that we can know whether the value is a
+    /// string or an actual integer
+    pub msb_11: bool,
+    /// Even if the value is an integer, it is stored as a string
+    pub field: String,
 }
 
-// TODO: ENSURE it is actually correct
-#[binrw::parser(reader, endian)]
-fn parse_length_encoding() -> BinResult<u32> {
-    let byte = u8::read_options(reader, endian, ())?;
-    let val = match byte >> 6 {
-        0 => (byte & 0b00111111) as u32,
-        1 => {
-            let first_part = (byte & 0b00111111) as u32;
-            let second_part = (u8::read_options(reader, endian, ())?) as u32;
-            first_part << 8 & second_part
-        }
-        2 => {
-            let second_part = u8::read_options(reader, endian, ())?;
-            second_part as u32
-        }
-        3 => {
-            todo!()
-        }
-        _ => unreachable!(),
-    };
-    Ok(val)
+impl BinRead for StringEncodedField {
+    type Args<'a> = ();
+
+    fn read_options<R: std::io::prelude::Read + std::io::prelude::Seek>(
+        reader: &mut R,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let byte = u8::read_options(reader, endian, args)?;
+        let mut msb_11 = false;
+        let field: String;
+        match byte >> 6 {
+            0 => {
+                let length = (byte & 0b00111111) as usize;
+                let mut buf = vec![0u8; length];
+                reader.read_exact(&mut buf)?;
+                field = String::from_utf8_lossy(&buf).to_string();
+            }
+            1 => {
+                let first_part = (byte & 0b00111111) as usize;
+                let second_part = (u8::read_options(reader, endian, args)?) as usize;
+                let length = first_part << 8 & second_part;
+                let mut buf = vec![0u8; length];
+                reader.read_exact(&mut buf)?;
+                field = String::from_utf8_lossy(&buf).to_string();
+            }
+            2 => {
+                let second_part = u8::read_options(reader, endian, args)?;
+                let length = second_part as usize;
+                let mut buf = vec![0u8; length];
+                reader.read_exact(&mut buf)?;
+                field = String::from_utf8_lossy(&buf).to_string();
+            }
+            3 => {
+                msb_11 = true;
+                let format = byte & 0b00111111;
+                match format {
+                    0 => {
+                        let mut buf = [0u8; 1];
+                        reader.read_exact(&mut buf)?;
+                        let val = u8::from_le_bytes(buf);
+                        field = format!("{}", val);
+                    }
+                    1 => {
+                        let mut buf = [0u8; 2];
+                        reader.read_exact(&mut buf)?;
+                        let val = u16::from_le_bytes(buf);
+                        field = format!("{}", val);
+                    }
+                    2 => {
+                        let mut buf = [0u8; 4];
+                        reader.read_exact(&mut buf)?;
+                        let val = u32::from_le_bytes(buf);
+                        field = format!("{}", val);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(Self { msb_11, field })
+    }
 }
+
+impl BinWrite for StringEncodedField {
+    type Args<'a> = ();
+
+    fn write_options<W: std::io::prelude::Write + std::io::prelude::Seek>(
+        &self,
+        writer: &mut W,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<()> {
+        match self.msb_11 {
+            true => {
+                // here we actually encoded a number as string
+                let num = self
+                    .field
+                    .parse::<u32>()
+                    .expect("field should be an encoded integer");
+                if num < 256 {
+                    u8::write_options(&0b11000000, writer, endian, args)?;
+                    u8::write_options(&(num as u8), writer, endian, args)?;
+                } else if num < 65536 {
+                    u8::write_options(&0b11000001, writer, endian, args)?;
+                    // NOTE: i am actually not sure about this
+                    u16::write_options(&(num as u16), writer, binrw::Endian::Big, args)?;
+                } else {
+                    u8::write_options(&0b11000010, writer, endian, args)?;
+                    u32::write_options(&num, writer, binrw::Endian::Big, args)?;
+                }
+            }
+            false => {
+                let bytes = self.field.as_bytes();
+
+                let len = bytes.len();
+                if len < 192 {
+                    // length fits on the rest of the byte and we are sure first two
+                    // msb are 00
+                    u8::write_options(&(len as u8), writer, endian, args)?;
+
+                    writer.write_all(bytes)?;
+                } else if len < 256 {
+                    // first we write the first 2 msb: 10
+                    u8::write_options(&0b10000000, writer, endian, args)?;
+
+                    // then we write the actual length
+                    u8::write_options(&(len as u8), writer, endian, args)?;
+
+                    writer.write_all(bytes)?;
+                } else {
+                    // we need the two bytes
+                    let first_part = (len >> 8) | 0b01000000;
+                    let second_part = len & 0b11111111;
+                    // first we write the first part
+                    u8::write_options(&(first_part as u8), writer, endian, args)?;
+
+                    // then we write the second_part
+                    u8::write_options(&(second_part as u8), writer, endian, args)?;
+
+                    writer.write_all(bytes)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+// endregion: string encoded field
 
 #[cfg(test)]
 mod tests {
@@ -104,12 +217,12 @@ mod tests {
     #[test]
     pub fn test_rdb() -> Result<()> {
         let mut file = File::open("test_dump.rdb")?;
-        let header = RdbHeader::read(&mut file)?;
-        dbg!(&header.bb);
+        let rdb = Rdb::read(&mut file)?;
+        dbg!(&rdb.auxiliary_fields);
 
         let mut cursor = Cursor::new(vec![]);
-        header.write(&mut cursor).unwrap();
-        dbg!(cursor.into_inner());
+        rdb.write(&mut cursor).unwrap();
+        dbg!(hex::encode(cursor.into_inner()));
 
         Ok(())
     }
