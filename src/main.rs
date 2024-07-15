@@ -15,7 +15,7 @@ use crate::token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 use connection_handler::handle_connection;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
 use std::time::{Duration, Instant};
@@ -89,19 +89,16 @@ fn main() -> Result<()> {
     if let Some(master_stream) = master_stream.as_mut() {
         poll.registry()
             .register(master_stream, MASTER, Interest::READABLE)?;
+        // Start of the handshake process
         db.send_ping_to_master(master_stream)?;
     }
 
     // tracks client calling wait. Note that we can only handle one wait.
+    // TODO: improve WAIT flow
     let mut waiting_token = None;
 
-    //TODO:
-    // master keeps track of current replication offset of each connected replica.
-    // At each write, it updates the values of each offset. On a wait, it compares the updated
-    // value with the current value for each replica and only sends a getack if needed. If not, it
-    // does not need to send a wait.
     loop {
-        // Poll Mio for events, blocking until we get an event or for 100 ms.
+        // Poll Mio for events, blocking until we get an event or for 50 ms.
         poll.poll(&mut events, Some(Duration::from_millis(50)))?;
 
         // Process each event.
@@ -110,7 +107,7 @@ fn main() -> Result<()> {
                 SERVER => {
                     // If this is an event for the server, it means a connection is ready to be accepted.
                     loop {
-                        let (mut connection, address) = match server.accept() {
+                        let (mut connection, _address) = match server.accept() {
                             Ok((connection, address)) => (connection, address),
                             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                                 // If we get a `WouldBlock` error we know our
@@ -138,14 +135,20 @@ fn main() -> Result<()> {
                 }
                 MASTER => {
                     // Handles connections coming from master. This only occurs in replicas
-
-                    // TODO: combine handle_master_connection and handle_connection ?
-                    let master_stream_mut = master_stream.as_mut().unwrap();
+                    // Replica should not respond to master except for getack, which is why
+                    // silent is set to true
+                    let master_stream_mut = master_stream
+                        .as_mut()
+                        .expect("Should have a connection to master");
                     let (_, _) = handle_connection(master_stream_mut, &mut db, true)
                         .map_err(|e| dbg!(e))
                         .unwrap_or((true, false));
                 }
                 token => {
+                    // if we are in waiting state and receive an event,
+                    // if it comes from a replica, it means we received an ack so we
+                    // can increase the nb of obtained replicas and mark it as up to date
+                    // If it comes from a new connection, it is just ignored
                     if let ConnectionState::Waiting(
                         intitial_time,
                         timeout,
@@ -165,12 +168,11 @@ fn main() -> Result<()> {
                         continue;
                     }
 
-                    // Handle events for a connection.
+                    // Handle events for a connection
                     let (done, register) = if let Some(connection) = connections.get_mut(&token) {
-                        // here we force close the connection on error. Probably there is a better
-                        // way
                         handle_connection(connection, &mut db, false)
                             .map_err(|e| dbg!(e))
+                            // here we force close the connection on error
                             .unwrap_or((true, false))
                     } else {
                         (false, false)
@@ -178,6 +180,8 @@ fn main() -> Result<()> {
 
                     // register is there to handle replica connections to master
                     if done || register {
+                        // Ugly patch to handle waiting state. Note that the deregister
+                        // process is not really robust
                         if let ConnectionState::Waiting(_, _, _, _) = db.state {
                             waiting_token = Some(token);
                         } else if let Some(mut connection) = connections.remove(&token) {
@@ -202,7 +206,8 @@ fn main() -> Result<()> {
             }
         }
 
-        // TODO: move in function
+        // Final check on waiting state. if we are in waiting state and we either waited
+        // enough or have enough ack, we write back to the waiting connection
         if let ConnectionState::Waiting(
             inititial_time,
             timeout,

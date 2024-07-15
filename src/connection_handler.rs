@@ -36,10 +36,10 @@ pub fn handle_connection(
             let received_data = connection_data.get_received_data();
             let position = find_crlf_position(received_data).unwrap();
             let begin = String::from_utf8_lossy(&received_data[..position + 2]).to_string();
-            let (begin, length) = parse_rdb_length(&begin).finish()?;
+            let (_begin, length) = parse_rdb_length(&begin).finish()?;
 
             // TODO: parse rdb file
-            let rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
+            let _rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
 
             let end_bytes = &received_data[position + 2 + length as usize..];
             input_string = String::from_utf8_lossy(end_bytes).to_string();
@@ -55,7 +55,7 @@ pub fn handle_connection(
     let mut redis_value;
 
     while !input.is_empty() {
-        (input, redis_value) = parse_redis_value(&input).finish()?;
+        (input, redis_value) = parse_redis_value(input).finish()?;
 
         match db.state {
             ConnectionState::BeforeRdbFile => {

@@ -41,3 +41,9 @@ impl TokenTrack {
         token
     }
 }
+
+impl Default for TokenTrack {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -133,7 +133,7 @@ fn parse_bulkstring_word(input: &str, length: usize) -> IResult<&str, &str> {
 }
 
 pub fn parse_rdb_length(input: &str) -> IResult<&str, i64> {
-    let (input, symbol) = parse_symbol(input)?;
+    let (input, _symbol) = parse_symbol(input)?;
     // TODO: check symbol is $
     let (input, length) = parse_redis_int(input)?;
     Ok((input, length))

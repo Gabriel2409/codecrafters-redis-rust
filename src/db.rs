@@ -1,12 +1,12 @@
 use mio::net::TcpStream;
-use mio::{Events, Interest, Poll, Token};
+use mio::Token;
 
 use crate::replica::Replica;
 use crate::token::TokenTrack;
 use crate::Result;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 

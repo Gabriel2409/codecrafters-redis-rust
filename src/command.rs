@@ -196,10 +196,7 @@ impl RedisCommand {
     /// Whether the command should be forwarded to the other replicas.
     /// Only commands that write to the underlying db are concerned
     pub fn should_forward_to_replicas(&self) -> bool {
-        match self {
-            Self::Set(_, _, _) => true,
-            _ => false,
-        }
+        matches!(self, Self::Set(_, _, _))
     }
 
     /// Executes command and returns a RedisValue on success
@@ -239,7 +236,7 @@ impl RedisCommand {
                     master_replid
                 )))
             }
-            Self::Wait(nb_replica, timeout) => {
+            Self::Wait(_, _) => {
                 // Wait should not be executed in a standard way
                 // It should instead modify the db state
                 todo!()
