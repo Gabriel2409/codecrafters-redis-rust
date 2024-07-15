@@ -93,7 +93,17 @@ fn parse_auxiliary_fields() -> BinResult<Vec<AuxiliaryField>> {
 #[brw(little)]
 pub struct DatabaseSection {
     #[brw(magic = 0xFEu8)]
-    pub db_number: StringEncodedField,
+    pub db_number: LengthEncoding,
+    #[brw(magic = 0xFBu8)]
+    hash_table_size: LengthEncoding,
+    expire_hash_table_size: LengthEncoding,
+
+    //
+    /// One byte flag
+    value_type: ValueTypeEncoding,
+    key: StringEncodedField,
+    // TODO: implement encoding for other types
+    value: StringEncodedField,
 }
 
 // endregion: database section
@@ -279,6 +289,98 @@ impl BinWrite for LengthEncoding {
 
 // endregion: length encoding
 
+// region: expiration
+#[derive(Debug)]
+struct Expiration {
+    /// True for secon, false for ms
+    is_second: bool,
+    expiry_time: Option<u64>,
+}
+
+impl BinRead for Expiration {
+    type Args<'a> = ();
+
+    fn read_options<R: std::io::prelude::Read + std::io::prelude::Seek>(
+        reader: &mut R,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let byte = u8::read_options(reader, endian, args)?;
+        match byte {
+            0xFC => {
+                let expiry_time = u64::read_options(reader, endian, args)?;
+
+                Ok(Self {
+                    is_second: false,
+                    expiry_time: Some(expiry_time),
+                })
+            }
+            0xFD => {
+                let expiry_time = u32::read_options(reader, endian, args)?;
+                Ok(Self {
+                    is_second: true,
+                    expiry_time: Some(expiry_time as u64),
+                })
+            }
+
+            _ => {
+                // go back
+                reader.seek(SeekFrom::Current(-1))?;
+                Ok(Self {
+                    is_second: true,
+                    expiry_time: None,
+                })
+            }
+        }
+    }
+}
+
+// TODO:
+impl BinWrite for Expiration {
+    type Args<'a> = ();
+
+    fn write_options<W: std::io::prelude::Write + std::io::prelude::Seek>(
+        &self,
+        writer: &mut W,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<()> {
+        todo!()
+    }
+}
+
+// endregion: expiration
+
+// region: value type encoding
+#[derive(Debug)]
+#[binrw]
+enum ValueTypeEncoding {
+    #[brw(magic = 0u8)]
+    String,
+    #[brw(magic = 1u8)]
+    List,
+    #[brw(magic = 2u8)]
+    Set,
+    #[brw(magic = 3u8)]
+    SortedSet,
+    #[brw(magic = 4u8)]
+    Hash,
+    #[brw(magic = 9u8)]
+    Zipmap,
+    #[brw(magic = 10u8)]
+    Ziplist,
+    #[brw(magic = 11u8)]
+    Intset,
+    #[brw(magic = 12u8)]
+    SortedSetInZiplist,
+    #[brw(magic = 13u8)]
+    HashmapInZiplist,
+    #[brw(magic = 14u8)]
+    ListInQuicklist,
+}
+
+// endregion: value type encoding
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,7 +394,7 @@ mod tests {
     pub fn test_rdb() -> Result<()> {
         let mut file = File::open("test_dump.rdb")?;
         let rdb = Rdb::read(&mut file)?;
-        dbg!(&rdb.auxiliary_fields);
+        dbg!(&rdb.database_sections);
 
         let mut cursor = Cursor::new(vec![]);
         rdb.write(&mut cursor).unwrap();
