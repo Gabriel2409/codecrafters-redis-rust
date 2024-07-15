@@ -10,6 +10,9 @@ pub struct Rdb {
     /// Metadata section
     #[br(parse_with=parse_auxiliary_fields)]
     auxiliary_fields: Vec<AuxiliaryField>,
+
+    #[br(count = 1)]
+    database_sections: Vec<DatabaseSection>,
 }
 
 // region: header
@@ -83,8 +86,19 @@ fn parse_auxiliary_fields() -> BinResult<Vec<AuxiliaryField>> {
 
 // endregion: auxiliary field
 
-// region: string encoded field
+// region: database section
 
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct DatabaseSection {
+    #[brw(magic = 0xFEu8)]
+    pub db_number: StringEncodedField,
+}
+
+// endregion: database section
+
+// region: string encoded field
 #[derive(Debug)]
 pub struct StringEncodedField {
     /// Whether the msb is 11 or not
@@ -107,27 +121,16 @@ impl BinRead for StringEncodedField {
         let mut msb_11 = false;
         let field: String;
         match byte >> 6 {
-            0 => {
-                let length = (byte & 0b00111111) as usize;
-                let mut buf = vec![0u8; length];
+            0..=2 => {
+                reader.seek(SeekFrom::Current(-1))?;
+                let length_encoding = LengthEncoding::read_options(reader, endian, args)?;
+                let mut buf = vec![0u8; length_encoding.length as usize];
                 reader.read_exact(&mut buf)?;
                 field = String::from_utf8_lossy(&buf).to_string();
             }
-            1 => {
-                let first_part = (byte & 0b00111111) as usize;
-                let second_part = (u8::read_options(reader, endian, args)?) as usize;
-                let length = first_part << 8 & second_part;
-                let mut buf = vec![0u8; length];
-                reader.read_exact(&mut buf)?;
-                field = String::from_utf8_lossy(&buf).to_string();
-            }
-            2 => {
-                let second_part = u8::read_options(reader, endian, args)?;
-                let length = second_part as usize;
-                let mut buf = vec![0u8; length];
-                reader.read_exact(&mut buf)?;
-                field = String::from_utf8_lossy(&buf).to_string();
-            }
+            // special case, after this there is a number on 1, 2 or 4 bytes
+            // depending on the format
+            // For simplicity, we keep it as string here
             3 => {
                 msb_11 = true;
                 let format = byte & 0b00111111;
@@ -191,32 +194,9 @@ impl BinWrite for StringEncodedField {
                 let bytes = self.field.as_bytes();
 
                 let len = bytes.len();
-                if len < 192 {
-                    // length fits on the rest of the byte and we are sure first two
-                    // msb are 00
-                    u8::write_options(&(len as u8), writer, endian, args)?;
-
-                    writer.write_all(bytes)?;
-                } else if len < 256 {
-                    // first we write the first 2 msb: 10
-                    u8::write_options(&0b10000000, writer, endian, args)?;
-
-                    // then we write the actual length
-                    u8::write_options(&(len as u8), writer, endian, args)?;
-
-                    writer.write_all(bytes)?;
-                } else {
-                    // we need the two bytes
-                    let first_part = (len >> 8) | 0b01000000;
-                    let second_part = len & 0b11111111;
-                    // first we write the first part
-                    u8::write_options(&(first_part as u8), writer, endian, args)?;
-
-                    // then we write the second_part
-                    u8::write_options(&(second_part as u8), writer, endian, args)?;
-
-                    writer.write_all(bytes)?;
-                }
+                let length_encoding = LengthEncoding { length: len as u32 };
+                length_encoding.write_options(writer, endian, args)?;
+                writer.write_all(bytes)?;
             }
         }
         Ok(())
@@ -224,6 +204,80 @@ impl BinWrite for StringEncodedField {
 }
 
 // endregion: string encoded field
+
+// region: length encoding
+
+#[derive(Debug)]
+pub struct LengthEncoding {
+    pub length: u32,
+}
+
+impl BinRead for LengthEncoding {
+    type Args<'a> = ();
+
+    fn read_options<R: std::io::prelude::Read + std::io::prelude::Seek>(
+        reader: &mut R,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<Self> {
+        let byte = u8::read_options(reader, endian, args)?;
+        let length = match byte >> 6 {
+            0 => (byte & 0b00111111) as u32,
+            1 => {
+                let first_part = (byte & 0b00111111) as u32;
+                let second_part = (u8::read_options(reader, endian, args)?) as u32;
+                first_part << 8 & second_part
+            }
+            2 => {
+                let second_part = u8::read_options(reader, endian, args)?;
+                second_part as u32
+            }
+            // NOTE: if MSB is 11, it is a special case, see StringEncodedField
+            x => Err(binrw::Error::AssertFail {
+                pos: reader.stream_position()?,
+                message: format!("Length Encoding MSB can only be 00, 01, 02. Got {}", x),
+            })?,
+        };
+
+        Ok(Self { length })
+    }
+}
+
+impl BinWrite for LengthEncoding {
+    type Args<'a> = ();
+
+    fn write_options<W: std::io::prelude::Write + std::io::prelude::Seek>(
+        &self,
+        writer: &mut W,
+        endian: binrw::Endian,
+        args: Self::Args<'_>,
+    ) -> BinResult<()> {
+        let len = self.length;
+        if len < 192 {
+            // length fits on the rest of the byte and we are sure first two
+            // msb are 00
+            u8::write_options(&(len as u8), writer, endian, args)?;
+        } else if len < 256 {
+            // first we write the first 2 msb: 10
+            u8::write_options(&0b10000000, writer, endian, args)?;
+
+            // then we write the actual length
+            u8::write_options(&(len as u8), writer, endian, args)?;
+        } else {
+            // we need the two bytes
+            let first_part = (len >> 8) | 0b01000000;
+            let second_part = len & 0b11111111;
+            // first we write the first part
+            u8::write_options(&(first_part as u8), writer, endian, args)?;
+
+            // then we write the second_part
+            u8::write_options(&(second_part as u8), writer, endian, args)?;
+        }
+        Ok(())
+    }
+}
+
+// endregion: length encoding
 
 #[cfg(test)]
 mod tests {
