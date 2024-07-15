@@ -30,4 +30,5 @@ thiserror = "1.0.32"                                       # error handling
 tokio = { version = "1.23.0", features = ["full"] }        # async networking
 
 [dev-dependencies]
+pretty-hex = "0.4.1"
 rstest = "0.21.0"

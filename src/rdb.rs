@@ -7,7 +7,7 @@ use crate::{Error, Result};
 #[brw(little)]
 pub struct Rdb {
     header: RdbHeader,
-    #[br(count = 2)]
+    #[br(count = 3)]
     auxiliary_fields: Vec<AuxiliaryField>,
 }
 
@@ -161,11 +161,10 @@ impl BinWrite for StringEncodedField {
                     u8::write_options(&(num as u8), writer, endian, args)?;
                 } else if num < 65536 {
                     u8::write_options(&0b11000001, writer, endian, args)?;
-                    // NOTE: i am actually not sure about this
-                    u16::write_options(&(num as u16), writer, binrw::Endian::Big, args)?;
+                    u16::write_options(&(num as u16), writer, endian, args)?;
                 } else {
                     u8::write_options(&0b11000010, writer, endian, args)?;
-                    u32::write_options(&num, writer, binrw::Endian::Big, args)?;
+                    u32::write_options(&num, writer, endian, args)?;
                 }
             }
             false => {
@@ -210,6 +209,7 @@ impl BinWrite for StringEncodedField {
 mod tests {
 
     use binrw::BinWrite;
+    use pretty_hex::PrettyHex;
 
     use super::*;
     use std::{fs::File, io::Cursor};
@@ -222,7 +222,8 @@ mod tests {
 
         let mut cursor = Cursor::new(vec![]);
         rdb.write(&mut cursor).unwrap();
-        dbg!(hex::encode(cursor.into_inner()));
+
+        println!("{}", cursor.into_inner().hex_dump());
 
         Ok(())
     }
