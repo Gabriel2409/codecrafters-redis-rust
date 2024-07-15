@@ -345,7 +345,20 @@ impl BinWrite for Expiration {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> BinResult<()> {
-        todo!()
+        match self.expiry_time {
+            None => {}
+            Some(expiry_time) => match self.is_second {
+                true => {
+                    u8::write_options(&0xFD, writer, endian, args)?;
+                    u32::write_options(&(expiry_time as u32), writer, endian, args)?;
+                }
+                false => {
+                    u8::write_options(&0xFC, writer, endian, args)?;
+                    u64::write_options(&expiry_time, writer, endian, args)?;
+                }
+            },
+        }
+        Ok(())
     }
 }
 
