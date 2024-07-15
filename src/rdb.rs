@@ -2,44 +2,45 @@ use binrw::{binrw, BinRead, BinResult};
 
 use crate::{Error, Result};
 
-#[derive(Debug, BinRead)]
+#[derive(Debug)]
+#[binrw]
 #[brw(little)]
 pub struct RdbHeader {
-    // #[br(assert(String::from_utf8_lossy(&magic_string) == "REDIS"))]
-    // #[br(count = 5)]
-    // pub magic_string: Vec<u8>,
-    #[br(parse_with=parse_magic_string)]
-    pub magic_string: String,
+    // Starts with REDIS
+    #[brw(magic = b"REDIS")]
+    #[br(parse_with=parse_version)]
+    #[bw(write_with=write_version)]
+    pub redis_version: u8,
 }
 
-/// Helper function to parse varint fields
-#[binrw::parser(reader, endian)]
-fn parse_magic_string() -> BinResult<String> {
-    let mut buf = [0u8; 5];
+#[binrw::parser(reader)]
+fn parse_version() -> BinResult<u8> {
+    let mut buf = vec![0u8; 4];
+
     reader.read_exact(&mut buf)?;
-    let magic_str = String::from_utf8_lossy(&buf).to_string();
-    if magic_str == "REDIS" {
-        Ok(magic_str)
-    } else {
-        Err(binrw::Error::AssertFail {
-            pos: 0,
-            message: "Invalid magic string".to_string(),
-        })
-    }
+
+    let version_str = String::from_utf8(buf).unwrap();
+    let version = version_str.parse::<u8>().unwrap();
+    Ok(version)
+}
+
+#[binrw::writer(writer)]
+fn write_version(version: &u8) -> BinResult<()> {
+    let version_str = format!("{:04}", version);
+    writer.write_all(version_str.as_bytes())?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use binrw::BinRead;
-    use std::fs::File;
 
     use super::*;
+    use std::fs::File;
 
     #[test]
     pub fn test_rdb() -> Result<()> {
         let mut file = File::open("test_dump.rdb")?;
         let header = RdbHeader::read(&mut file)?;
-        dbg!(header);
 
         Ok(())
     }
