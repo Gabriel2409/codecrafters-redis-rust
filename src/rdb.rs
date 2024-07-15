@@ -98,7 +98,7 @@ pub struct DatabaseSection {
     hash_table_size: LengthEncoding,
     expire_hash_table_size: LengthEncoding,
 
-    //
+    expiration: Expiration,
     /// One byte flag
     value_type: ValueTypeEncoding,
     key: StringEncodedField,
