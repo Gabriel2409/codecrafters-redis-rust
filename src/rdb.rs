@@ -1,13 +1,14 @@
-use binrw::{binread, binrw, BinRead, BinResult, BinWrite};
+use std::io::SeekFrom;
 
-use crate::{Error, Result};
+use binrw::{binrw, BinRead, BinResult, BinWrite};
 
 #[derive(Debug)]
 #[binrw]
 #[brw(little)]
 pub struct Rdb {
     header: RdbHeader,
-    #[br(count = 3)]
+    /// Metadata section
+    #[br(parse_with=parse_auxiliary_fields)]
     auxiliary_fields: Vec<AuxiliaryField>,
 }
 
@@ -54,14 +55,33 @@ fn write_version(version: &u8) -> BinResult<()> {
 
 // endregion: header
 
+// region: auxiliary field
 #[derive(Debug)]
 #[binrw]
+// important to be in little endian
 #[brw(little)]
 pub struct AuxiliaryField {
     #[brw(magic = 0xFAu8)]
     pub key: StringEncodedField,
     pub value: StringEncodedField,
 }
+
+#[binrw::parser(reader, endian)]
+fn parse_auxiliary_fields() -> BinResult<Vec<AuxiliaryField>> {
+    let mut auxiliary_fields = Vec::new();
+
+    loop {
+        let byte = u8::read_options(reader, endian, ())?;
+        reader.seek(SeekFrom::Current(-1))?;
+        if byte != 0xFA {
+            break;
+        }
+        auxiliary_fields.push(AuxiliaryField::read_options(reader, endian, ())?);
+    }
+    Ok(auxiliary_fields)
+}
+
+// endregion: auxiliary field
 
 // region: string encoded field
 
@@ -207,11 +227,11 @@ impl BinWrite for StringEncodedField {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::Result;
 
     use binrw::BinWrite;
     use pretty_hex::PrettyHex;
-
-    use super::*;
     use std::{fs::File, io::Cursor};
 
     #[test]
