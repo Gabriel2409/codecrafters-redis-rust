@@ -22,6 +22,9 @@ pub enum Error {
     #[error("Redis value cant be converted to string")]
     CantConvertToString(RedisValue),
 
+    #[error("Can't convert this to a timestamp in milliseconds")]
+    CantConvertToMsTimestamp(String),
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 

@@ -6,6 +6,7 @@ mod error;
 mod parser;
 mod rdb;
 mod replica;
+mod stream;
 mod token;
 
 use crate::db::{ConnectionState, DbInfo, RedisDb};
