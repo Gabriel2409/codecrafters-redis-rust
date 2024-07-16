@@ -127,7 +127,7 @@ pub struct DatabaseSection {
 #[brw(little)]
 pub struct DatabaseField {
     expiration: Expiration,
-    value_type: ValueTypeEncoding,
+    pub value_type: ValueTypeEncoding,
     pub key: StringEncodedField,
     // TODO: implement encoding for other types
     pub value: StringEncodedField,
@@ -423,7 +423,7 @@ impl BinWrite for Expiration {
 // region: value type encoding
 #[derive(Debug)]
 #[binrw]
-enum ValueTypeEncoding {
+pub enum ValueTypeEncoding {
     #[brw(magic = 0u8)]
     String,
     #[brw(magic = 1u8)]

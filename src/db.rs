@@ -1,7 +1,7 @@
 use mio::net::TcpStream;
 use mio::Token;
 
-use crate::rdb::Rdb;
+use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
 use crate::token::TokenTrack;
 use crate::Result;
@@ -26,12 +26,18 @@ pub enum ConnectionState {
 
 #[derive(Debug, Clone)]
 struct DbValue {
-    value: String,
+    value: ValueType,
     expires_at: Option<Instant>,
 }
 
+#[derive(Debug, Clone)]
+pub enum ValueType {
+    String(String),
+    Stream,
+}
+
 impl DbValue {
-    fn new(value: String, expires_in: Option<Duration>) -> Self {
+    fn new(value: ValueType, expires_in: Option<Duration>) -> Self {
         let expires_at = expires_in.map(|dur| Instant::now() + dur);
         Self { value, expires_at }
     }
@@ -118,13 +124,13 @@ impl RedisDb {
         }
     }
 
-    pub fn set(&self, key: String, value: String, px: Option<u64>) {
+    pub fn set(&self, key: String, value: ValueType, px: Option<u64>) {
         let expires_in = px.map(Duration::from_millis);
         let db_value = DbValue::new(value, expires_in);
         self.inner.borrow_mut().store.insert(key, db_value);
     }
 
-    pub fn get(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> Option<ValueType> {
         let db_value = self.inner.borrow().store.get(key).cloned();
         match db_value {
             None => None,
@@ -213,9 +219,14 @@ impl RedisDb {
                 for field in &db_section.fields_with_expiry {
                     let unix_timestamp_ms_expire = field.get_unix_timestamp_expiration_ms();
 
+                    let value = match field.value_type {
+                        ValueTypeEncoding::String => ValueType::String(field.value.field.clone()),
+                        _ => todo!("Only string implemented with rdb"),
+                    };
+
                     match unix_timestamp_ms_expire {
                         None => {
-                            self.set(field.key.field.clone(), field.value.field.clone(), None);
+                            self.set(field.key.field.clone(), value, None);
                         }
                         Some(unix_timestamp_ms_expire) => {
                             let since_epoch = SystemTime::now()
@@ -227,11 +238,7 @@ impl RedisDb {
 
                             if current_timestamp_in_ms < unix_timestamp_ms_expire {
                                 let px = unix_timestamp_ms_expire - current_timestamp_in_ms;
-                                self.set(
-                                    field.key.field.clone(),
-                                    field.value.field.clone(),
-                                    Some(px),
-                                );
+                                self.set(field.key.field.clone(), value, Some(px));
                             }
                         }
                     }

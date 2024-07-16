@@ -1,4 +1,4 @@
-use crate::db::RedisDb;
+use crate::db::{RedisDb, ValueType};
 use crate::parser::RedisValue;
 use crate::{Error, Result};
 
@@ -218,13 +218,17 @@ impl RedisCommand {
             Self::Ping => Ok(RedisValue::SimpleString("PONG".to_string())),
             Self::Echo(x) => Ok(RedisValue::SimpleString(x.clone())),
             Self::Set(key, value, px) => {
-                db.set(key.clone(), value.clone(), *px);
+                db.set(key.clone(), ValueType::String(value.clone()), *px);
                 Ok(RedisValue::SimpleString("OK".to_string()))
             }
             Self::Get(key) => {
                 let val = db.get(key);
                 match val {
-                    Some(val) => Ok(RedisValue::SimpleString(val)),
+                    Some(val) => match val {
+                        ValueType::String(val) => Ok(RedisValue::SimpleString(val)),
+                        _ => todo!("Implement get for other types"),
+                    },
+
                     None => Ok(RedisValue::NullBulkString),
                 }
             }
