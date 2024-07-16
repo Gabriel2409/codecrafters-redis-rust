@@ -22,6 +22,7 @@ pub enum RedisCommand {
     Wait(u64, u64),
     ConfigGet(String),
     Keys(String),
+    Type(String),
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -193,6 +194,18 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     }
                                 }
                             }
+                            "type" => {
+                                if nb_elements != 2 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    match &args[0] {
+                                        RedisValue::BulkString(_, key) => {
+                                            Ok(RedisCommand::Type(key.clone()))
+                                        }
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
+                                    }
+                                }
+                            }
 
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
@@ -273,6 +286,18 @@ impl RedisCommand {
                 let keys = db.keys(pat);
                 let joined_keys = keys.join(" ");
                 Ok(RedisValue::array_of_bulkstrings_from(&joined_keys))
+            }
+
+            Self::Type(key) => {
+                let val = db.get(key);
+                match val {
+                    Some(val) => match val {
+                        ValueType::String(_) => Ok(RedisValue::SimpleString("string".to_string())),
+                        _ => todo!("Implement get for other types"),
+                    },
+
+                    None => Ok(RedisValue::SimpleString("none".to_string())),
+                }
             }
         }
     }
