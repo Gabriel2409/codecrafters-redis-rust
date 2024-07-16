@@ -134,7 +134,7 @@ pub struct DatabaseField {
 }
 
 impl DatabaseField {
-    pub fn get_expiration_in_ms(&self) -> Option<u64> {
+    pub fn get_unix_timestamp_expiration_ms(&self) -> Option<u64> {
         match self.expiration.expiry_time {
             None => None,
             Some(x) => {

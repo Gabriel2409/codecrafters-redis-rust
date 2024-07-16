@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::parser::RedisValue;
 
@@ -211,9 +211,29 @@ impl RedisDb {
             None => {}
             Some(db_section) => {
                 for field in &db_section.fields_with_expiry {
-                    let px = field.get_expiration_in_ms();
+                    let unix_timestamp_ms_expire = field.get_unix_timestamp_expiration_ms();
 
-                    self.set(field.key.field.clone(), field.value.field.clone(), px)
+                    match unix_timestamp_ms_expire {
+                        None => {
+                            self.set(field.key.field.clone(), field.value.field.clone(), None);
+                        }
+                        Some(unix_timestamp_ms_expire) => {
+                            let since_epoch = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("time should not go backward");
+
+                            let current_timestamp_in_ms = since_epoch.as_secs() * 1000
+                                + since_epoch.subsec_nanos() as u64 / 1000000;
+                            if current_timestamp_in_ms > unix_timestamp_ms_expire {
+                                let px = current_timestamp_in_ms - unix_timestamp_ms_expire;
+                                self.set(
+                                    field.key.field.clone(),
+                                    field.value.field.clone(),
+                                    Some(px),
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
