@@ -16,9 +16,11 @@ use crate::token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 use connection_handler::handle_connection;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
+use rdb::Rdb;
 use std::collections::HashMap;
 use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -64,6 +66,13 @@ fn main() -> Result<()> {
             }
         }
     }
+
+    let rdb_path = Path::new(&args.dir).join(&args.dbfilename);
+    let rdb = if rdb_path.exists() {
+        Rdb::new(rdb_path);
+    } else {
+        Rdb::empty();
+    };
 
     // Creates the redis db
     let db_info = DbInfo::build(&role, args.port, &args.dir, &args.dbfilename);

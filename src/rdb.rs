@@ -1,4 +1,9 @@
-use std::io::SeekFrom;
+use crate::Result;
+use std::{
+    fs::File,
+    io::{Cursor, SeekFrom},
+    path::Path,
+};
 
 use binrw::{binrw, BinRead, BinResult, BinWrite};
 
@@ -14,6 +19,36 @@ pub struct Rdb {
     database_sections: Vec<DatabaseSection>,
     #[brw(magic = 0xFFu8)]
     checksum: u64,
+}
+
+impl Rdb {
+    pub fn new<P: AsRef<Path>>(file_path: P) -> Result<Self> {
+        let mut file = File::open(file_path)?;
+        let rdb = Self::read(&mut file)?;
+        Ok(rdb)
+    }
+    pub fn empty() -> Result<Self> {
+        let  bytes = hex::decode("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2")?;
+        let mut cursor = Cursor::new(bytes);
+
+        let rdb = Self::read(&mut cursor)?;
+        Ok(rdb)
+    }
+
+    pub fn keys(&self, pat: &str) -> Vec<String> {
+        // for now we return all keys whatever the pattern
+        let db_section = self
+            .database_sections
+            .iter()
+            .find(|x| x.db_number.length == 0)
+            .expect("Database 0 should exist");
+
+        db_section
+            .fields_with_expiry
+            .iter()
+            .map(|f| f.key.field.clone())
+            .collect::<Vec<_>>()
+    }
 }
 
 // region: header
@@ -429,12 +464,11 @@ mod tests {
 
     use binrw::BinWrite;
     use pretty_hex::PrettyHex;
-    use std::{fs::File, io::Cursor};
+    use std::io::Cursor;
 
     #[test]
     pub fn test_rdb() -> Result<()> {
-        let mut file = File::open("test_dump.rdb")?;
-        let rdb = Rdb::read(&mut file)?;
+        let rdb = Rdb::new("test_dump.rdb")?;
         dbg!(&rdb.database_sections);
 
         let mut cursor = Cursor::new(vec![]);
@@ -442,6 +476,7 @@ mod tests {
 
         println!("{}", cursor.into_inner().hex_dump());
 
+        let rdb = Rdb::empty()?;
         Ok(())
     }
 }
