@@ -14,7 +14,7 @@ impl Stream {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StreamId {
     timestamp_ms: u64,
     seq_number: u64,
@@ -54,5 +54,27 @@ impl TryFrom<&str> for StreamId {
 impl Display for StreamId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}", self.timestamp_ms, self.seq_number)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_stream_id() -> Result<()> {
+        let initial_input = "1526985054069-3";
+        let stream_id = StreamId::try_from(initial_input)?;
+        assert_eq!(
+            stream_id,
+            StreamId {
+                timestamp_ms: 1526985054069,
+                seq_number: 3
+            }
+        );
+        assert_eq!(stream_id.to_string(), initial_input.to_string());
+
+        Ok(())
     }
 }
