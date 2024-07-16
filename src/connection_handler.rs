@@ -1,6 +1,7 @@
 use crate::parser::{parse_rdb_length, RedisValue};
+use crate::rdb::Rdb;
 use crate::{Error, Result};
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::time::{Duration, Instant};
 
 use crate::command::RedisCommand;
@@ -8,6 +9,7 @@ use crate::connection_data::ConnectionData;
 use crate::db::{ConnectionState, RedisDb};
 use crate::parser::parse_redis_value;
 
+use binrw::BinRead;
 use mio::net::TcpStream;
 use nom::Finish;
 /// When a client connects to the server
@@ -38,8 +40,10 @@ pub fn handle_connection(
             let begin = String::from_utf8_lossy(&received_data[..position + 2]).to_string();
             let (_begin, length) = parse_rdb_length(&begin).finish()?;
 
-            // TODO: parse rdb file
-            let _rbd_bytes = &received_data[position + 2..position + 2 + length as usize];
+            // Uncomment to Parse rdb
+            let rdb_bytes = &received_data[position + 2..position + 2 + length as usize];
+            let rdb = Rdb::read(&mut Cursor::new(rdb_bytes))?;
+            db.load_rdb(&rdb);
 
             let end_bytes = &received_data[position + 2 + length as usize..];
             input_string = String::from_utf8_lossy(end_bytes).to_string();
