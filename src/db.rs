@@ -224,8 +224,9 @@ impl RedisDb {
 
                             let current_timestamp_in_ms = since_epoch.as_secs() * 1000
                                 + since_epoch.subsec_nanos() as u64 / 1000000;
-                            if current_timestamp_in_ms > unix_timestamp_ms_expire {
-                                let px = current_timestamp_in_ms - unix_timestamp_ms_expire;
+
+                            if current_timestamp_in_ms < unix_timestamp_ms_expire {
+                                let px = unix_timestamp_ms_expire - current_timestamp_in_ms;
                                 self.set(
                                     field.key.field.clone(),
                                     field.value.field.clone(),
