@@ -103,7 +103,9 @@ pub fn parse_redis_value(input: &str) -> IResult<&str, RedisValue> {
             }
             Ok((input, RedisValue::Array(nb_elements, redis_values)))
         }
-        _ => {
+        x => {
+            dbg!(x);
+            dbg!(input);
             todo!()
         }
     }
