@@ -40,14 +40,15 @@ impl Rdb {
         let db_section = self
             .database_sections
             .iter()
-            .find(|x| x.db_number.length == 0)
-            .expect("Database 0 should exist");
-
-        db_section
-            .fields_with_expiry
-            .iter()
-            .map(|f| f.key.field.clone())
-            .collect::<Vec<_>>()
+            .find(|x| x.db_number.length == 0);
+        match db_section {
+            None => vec![],
+            Some(db_section) => db_section
+                .fields_with_expiry
+                .iter()
+                .map(|f| f.key.field.clone())
+                .collect::<Vec<_>>(),
+        }
     }
 }
 
@@ -362,13 +363,10 @@ impl BinRead for Expiration {
         endian: binrw::Endian,
         args: Self::Args<'_>,
     ) -> BinResult<Self> {
-        dbg!(0);
         let byte = u8::read_options(reader, endian, args)?;
         match byte {
             0xFC => {
-                dbg!("1");
                 let expiry_time = u64::read_options(reader, endian, args)?;
-                dbg!("2");
 
                 Ok(Self {
                     is_second: false,
@@ -376,9 +374,7 @@ impl BinRead for Expiration {
                 })
             }
             0xFD => {
-                dbg!("3");
                 let expiry_time = u32::read_options(reader, endian, args)?;
-                dbg!("4");
                 Ok(Self {
                     is_second: true,
                     expiry_time: Some(expiry_time as u64),
@@ -386,10 +382,8 @@ impl BinRead for Expiration {
             }
 
             _ => {
-                dbg!("5");
                 // go back
                 reader.seek(SeekFrom::Current(-1))?;
-                dbg!("6");
                 Ok(Self {
                     is_second: true,
                     expiry_time: None,
@@ -476,7 +470,7 @@ mod tests {
 
         println!("{}", cursor.into_inner().hex_dump());
 
-        let rdb = Rdb::empty()?;
+        dbg!(rdb.keys("*"));
         Ok(())
     }
 }

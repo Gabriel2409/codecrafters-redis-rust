@@ -265,10 +265,11 @@ impl RedisCommand {
                 ))),
                 _ => Err(Error::InvalidRedisCommand(self.clone())),
             },
-            RedisCommand::Keys(pat) => match pat.as_str() {
-                "*" => Ok(RedisValue::SimpleString("BONJOUR".to_string())),
-                _ => Err(Error::InvalidRedisCommand(self.clone())),
-            },
+            RedisCommand::Keys(pat) => {
+                let keys = db.rdb.keys(pat);
+                let joined_keys = keys.join(" ");
+                Ok(RedisValue::array_of_bulkstrings_from(&joined_keys))
+            }
         }
     }
 }

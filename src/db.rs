@@ -1,6 +1,7 @@
 use mio::net::TcpStream;
 use mio::Token;
 
+use crate::rdb::Rdb;
 use crate::replica::Replica;
 use crate::token::TokenTrack;
 use crate::Result;
@@ -96,6 +97,7 @@ impl InnerRedisDb {
 #[derive(Debug)]
 pub struct RedisDb {
     pub info: DbInfo,
+    pub rdb: Rdb,
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     pub replicas: Vec<Replica>,
@@ -105,9 +107,10 @@ pub struct RedisDb {
 }
 
 impl RedisDb {
-    pub fn build(info: DbInfo, state: ConnectionState) -> Self {
+    pub fn build(info: DbInfo, rdb: Rdb, state: ConnectionState) -> Self {
         Self {
             info,
+            rdb,
             state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replicas: Vec::new(),
