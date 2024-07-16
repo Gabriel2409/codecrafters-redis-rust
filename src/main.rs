@@ -67,17 +67,13 @@ fn main() -> Result<()> {
         }
     }
 
-    let rdb_path = Path::new(&args.dir).join(&args.dbfilename);
-    let rdb = if rdb_path.exists() {
-        Rdb::new(rdb_path)?
-    } else {
-        Rdb::empty()?
-    };
-
     // Creates the redis db
     let db_info = DbInfo::build(&role, args.port, &args.dir, &args.dbfilename);
     let mut db = RedisDb::build(db_info, state);
-    db.load_rdb(&rdb);
+    let rdb_path = Path::new(&args.dir).join(&args.dbfilename);
+    if rdb_path.exists() {
+        db.load_rdb(&Rdb::new(rdb_path)?);
+    }
 
     // Create a poll instance.
     let mut poll = Poll::new()?;
