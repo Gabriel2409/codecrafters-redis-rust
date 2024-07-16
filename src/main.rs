@@ -76,7 +76,8 @@ fn main() -> Result<()> {
 
     // Creates the redis db
     let db_info = DbInfo::build(&role, args.port, &args.dir, &args.dbfilename);
-    let mut db = RedisDb::build(db_info, rdb, state);
+    let mut db = RedisDb::build(db_info, state);
+    db.load_rdb(&rdb);
 
     // Create a poll instance.
     let mut poll = Poll::new()?;

@@ -16,7 +16,7 @@ pub struct Rdb {
     #[br(parse_with=parse_auxiliary_fields)]
     auxiliary_fields: Vec<AuxiliaryField>,
     #[br(parse_with=parse_database_sections)]
-    database_sections: Vec<DatabaseSection>,
+    pub database_sections: Vec<DatabaseSection>,
     #[brw(magic = 0xFFu8)]
     checksum: u64,
 }
@@ -33,22 +33,6 @@ impl Rdb {
 
         let rdb = Self::read(&mut cursor)?;
         Ok(rdb)
-    }
-
-    pub fn keys(&self, pat: &str) -> Vec<String> {
-        // for now we return all keys whatever the pattern
-        let db_section = self
-            .database_sections
-            .iter()
-            .find(|x| x.db_number.length == 0);
-        match db_section {
-            None => vec![],
-            Some(db_section) => db_section
-                .fields_with_expiry
-                .iter()
-                .map(|f| f.key.field.clone())
-                .collect::<Vec<_>>(),
-        }
     }
 }
 
@@ -144,9 +128,24 @@ pub struct DatabaseSection {
 pub struct DatabaseField {
     expiration: Expiration,
     value_type: ValueTypeEncoding,
-    key: StringEncodedField,
+    pub key: StringEncodedField,
     // TODO: implement encoding for other types
-    value: StringEncodedField,
+    pub value: StringEncodedField,
+}
+
+impl DatabaseField {
+    pub fn get_expiration_in_ms(&self) -> Option<u64> {
+        match self.expiration.expiry_time {
+            None => None,
+            Some(x) => {
+                if self.expiration.is_second {
+                    Some(x * 1000)
+                } else {
+                    Some(x)
+                }
+            }
+        }
+    }
 }
 
 #[binrw::parser(reader, endian)]
@@ -470,7 +469,6 @@ mod tests {
 
         println!("{}", cursor.into_inner().hex_dump());
 
-        dbg!(rdb.keys("*"));
         Ok(())
     }
 }

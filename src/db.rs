@@ -97,7 +97,6 @@ impl InnerRedisDb {
 #[derive(Debug)]
 pub struct RedisDb {
     pub info: DbInfo,
-    pub rdb: Rdb,
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     pub replicas: Vec<Replica>,
@@ -107,10 +106,9 @@ pub struct RedisDb {
 }
 
 impl RedisDb {
-    pub fn build(info: DbInfo, rdb: Rdb, state: ConnectionState) -> Self {
+    pub fn build(info: DbInfo, state: ConnectionState) -> Self {
         Self {
             info,
-            rdb,
             state,
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replicas: Vec::new(),
@@ -139,6 +137,15 @@ impl RedisDb {
                 }
             }
         }
+    }
+
+    pub fn keys(&self, pat: &str) -> Vec<String> {
+        self.inner
+            .borrow()
+            .store
+            .keys()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
     }
 
     pub fn is_replica(&self) -> bool {
@@ -193,5 +200,22 @@ impl RedisDb {
         }
 
         Ok(())
+    }
+
+    pub fn load_rdb(&self, rdb: &Rdb) {
+        let db_section = rdb
+            .database_sections
+            .iter()
+            .find(|x| x.db_number.length == 0);
+        match db_section {
+            None => {}
+            Some(db_section) => {
+                for field in &db_section.fields_with_expiry {
+                    let px = field.get_expiration_in_ms();
+
+                    self.set(field.key.field.clone(), field.value.field.clone(), px)
+                }
+            }
+        }
     }
 }
