@@ -21,6 +21,7 @@ pub enum RedisCommand {
     /// Wait for nb_replicas with a timeout is ms
     Wait(u64, u64),
     ConfigGet(String),
+    Keys(String),
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -180,6 +181,18 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     }
                                 }
                             }
+                            "keys" => {
+                                if nb_elements != 2 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    match &args[0] {
+                                        RedisValue::BulkString(_, pat) => {
+                                            Ok(RedisCommand::Keys(pat.clone()))
+                                        }
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
+                                    }
+                                }
+                            }
 
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
@@ -250,6 +263,10 @@ impl RedisCommand {
                     "dbfilename {}",
                     db.info.dbfilename
                 ))),
+                _ => Err(Error::InvalidRedisCommand(self.clone())),
+            },
+            RedisCommand::Keys(pat) => match pat.as_str() {
+                "*" => Ok(RedisValue::SimpleString("BONJOUR".to_string())),
                 _ => Err(Error::InvalidRedisCommand(self.clone())),
             },
         }
