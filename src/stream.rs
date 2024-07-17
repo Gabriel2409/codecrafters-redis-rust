@@ -46,6 +46,36 @@ impl Stream {
         }
     }
 
+    /// Creates a stream id from a string
+    pub fn create_stream_id(&self, value: &str) -> Result<StreamId> {
+        match value {
+            "*" => Ok(self.next_stream_id()),
+            value => {
+                let (ts, seq) = match value.split_once("-") {
+                    None => (value, None),
+                    Some((ts, seq)) => (ts, Some(seq)),
+                };
+                if ts.len() > 13 {
+                    Err(Error::CantConvertToMsTimestamp(ts.to_string()))?;
+                }
+
+                let timestamp_ms = ts.parse::<u64>()?;
+                let seq_number = match seq {
+                    None => 0,
+                    Some("*") => {
+                        let last_stream_id = self.get_last_stream_id();
+                        last_stream_id.seq_number + 1
+                    }
+                    Some(seq) => seq.parse::<u64>()?,
+                };
+                Ok(StreamId {
+                    timestamp_ms,
+                    seq_number,
+                })
+            }
+        }
+    }
+
     pub fn xadd(
         &mut self,
         store: HashMap<String, String>,
@@ -75,29 +105,6 @@ impl Stream {
 pub struct StreamId {
     timestamp_ms: u64,
     seq_number: u64,
-}
-
-impl TryFrom<&str> for StreamId {
-    type Error = Error;
-
-    fn try_from(value: &str) -> Result<Self> {
-        let (ts, seq) = match value.split_once("-") {
-            None => (value, None),
-            Some((ts, seq)) => (ts, Some(seq)),
-        };
-        if ts.len() > 13 {
-            Err(Error::CantConvertToMsTimestamp(ts.to_string()))?;
-        }
-        let timestamp_ms = ts.parse::<u64>()?;
-        let seq_number = match seq {
-            None => 0,
-            Some(seq) => seq.parse::<u64>()?,
-        };
-        Ok(Self {
-            timestamp_ms,
-            seq_number,
-        })
-    }
 }
 
 impl Display for StreamId {
@@ -135,8 +142,9 @@ mod tests {
 
     #[test]
     fn test_stream_id() -> Result<()> {
+        let stream = Stream::new();
         let initial_input = "1526985054069-3";
-        let stream_id = StreamId::try_from(initial_input)?;
+        let stream_id = stream.create_stream_id(initial_input)?;
         assert_eq!(
             stream_id,
             StreamId {
@@ -151,8 +159,9 @@ mod tests {
 
     #[test]
     fn test_partial_stream_id() -> Result<()> {
+        let stream = Stream::new();
         let initial_input = "1526985054069";
-        let stream_id = StreamId::try_from(initial_input)?;
+        let stream_id = stream.create_stream_id(initial_input)?;
         assert_eq!(
             stream_id,
             StreamId {
@@ -169,7 +178,7 @@ mod tests {
     fn test_xadd() -> Result<()> {
         let mut stream = Stream::new();
 
-        let stream_id = StreamId::try_from("1526985054069-87")?;
+        let stream_id = stream.create_stream_id("1526985054069-87")?;
         let mut store = HashMap::new();
         store.insert("key1".to_string(), "value1".to_string());
         stream.xadd(store.clone(), Some(stream_id))?;
@@ -179,21 +188,21 @@ mod tests {
         assert!(same_insert.is_err());
         assert_eq!(stream.entries.len(), 1);
 
-        let prev_seq_stream_id = StreamId::try_from("1526985054069-86")?;
+        let prev_seq_stream_id = stream.create_stream_id("1526985054069-86")?;
         let prev_seq_insert = stream.xadd(store.clone(), Some(prev_seq_stream_id));
         assert!(prev_seq_insert.is_err());
         assert_eq!(stream.entries.len(), 1);
 
-        let prev_timestamp_stream_id = StreamId::try_from("1526985054068-87")?;
+        let prev_timestamp_stream_id = stream.create_stream_id("1526985054068-87")?;
         let prev_timestamp_insert = stream.xadd(store.clone(), Some(prev_timestamp_stream_id));
         assert!(prev_timestamp_insert.is_err());
         assert_eq!(stream.entries.len(), 1);
 
-        let next_seq_stream_id = StreamId::try_from("1526985054069-88")?;
+        let next_seq_stream_id = stream.create_stream_id("1526985054069-88")?;
         stream.xadd(store.clone(), Some(next_seq_stream_id))?;
         assert_eq!(stream.entries.len(), 2);
 
-        let next_timestamp_stream_id = StreamId::try_from("1526985054070-87")?;
+        let next_timestamp_stream_id = stream.create_stream_id("1526985054070-87")?;
         stream.xadd(store.clone(), Some(next_timestamp_stream_id))?;
         assert_eq!(stream.entries.len(), 3);
 

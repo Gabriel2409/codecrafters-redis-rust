@@ -162,11 +162,8 @@ impl RedisDb {
 
         match &mut db_value.value {
             ValueType::Stream(stream) => {
-                let stream_id = match stream_id {
-                    "*" => None,
-                    x => Some(x.try_into()?),
-                };
-                let returned_stream_id = stream.xadd(store, stream_id)?;
+                let stream_id = stream.create_stream_id(stream_id)?;
+                let returned_stream_id = stream.xadd(store, Some(stream_id))?;
                 Ok(returned_stream_id.to_string())
             }
             _ => Err(Error::WrongTypeOperation)?,
