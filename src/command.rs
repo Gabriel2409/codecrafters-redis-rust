@@ -341,6 +341,7 @@ impl RedisCommand {
                     None => Ok(RedisValue::SimpleString("none".to_string())),
                 }
             }
+
             Self::Xadd {
                 key,
                 stream_id,
