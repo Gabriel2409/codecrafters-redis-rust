@@ -335,7 +335,7 @@ impl RedisCommand {
                 match val {
                     Some(val) => match val {
                         ValueType::String(_) => Ok(RedisValue::SimpleString("string".to_string())),
-                        _ => todo!("Implement get for other types"),
+                        ValueType::Stream(_) => Ok(RedisValue::SimpleString("stream".to_string())),
                     },
 
                     None => Ok(RedisValue::SimpleString("none".to_string())),
