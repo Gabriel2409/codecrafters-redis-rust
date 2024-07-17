@@ -25,8 +25,8 @@ pub enum Error {
     #[error("Can't convert this to a timestamp in milliseconds")]
     CantConvertToMsTimestamp(String),
 
-    #[error("Stream id is invalid")]
-    InvalidStreamId,
+    #[error("Stream id is invalid.It must be greater than the specified string")]
+    StreamIdMustBeGreaterThan(String),
 
     #[error("WRONGTYPE Operation agains a key holding the wrong kind of value")]
     WrongTypeOperation,

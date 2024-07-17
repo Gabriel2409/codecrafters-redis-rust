@@ -347,8 +347,16 @@ impl RedisCommand {
                 stream_id,
                 store,
             } => {
-                let stream_id = db.xadd(key, stream_id, store.clone())?;
-                Ok(RedisValue::bulkstring_from(&stream_id))
+                let stream_id = db.xadd(key, stream_id, store.clone());
+                match stream_id {
+                    Ok(stream_id) => Ok(RedisValue::bulkstring_from(&stream_id)),
+                    Err(Error::StreamIdMustBeGreaterThan(_stream_id)) => {
+                        Ok(RedisValue::SimpleError(
+                            "ERR The ID specified in XADD is equal or smaller than the target stream top item".to_string())
+                        )
+                    }
+                    Err(_) => Err(Error::InvalidRedisCommand(self.clone())),
+                }
             }
         }
     }
