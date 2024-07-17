@@ -50,7 +50,7 @@ impl Stream {
         &mut self,
         store: HashMap<String, String>,
         stream_id: Option<StreamId>,
-    ) -> Result<()> {
+    ) -> Result<StreamId> {
         let stream_id = match stream_id {
             None => self.next_stream_id(),
             Some(stream_id) => {
@@ -64,7 +64,7 @@ impl Stream {
         let entry = StreamEntry::build(stream_id, store);
         self.entries.push_back(entry);
 
-        Ok(())
+        Ok(stream_id)
     }
 }
 
@@ -194,7 +194,8 @@ mod tests {
         stream.xadd(store.clone(), Some(next_timestamp_stream_id))?;
         assert_eq!(stream.entries.len(), 3);
 
-        stream.xadd(store.clone(), None)?;
+        let returned_id = stream.xadd(store.clone(), None)?;
+        assert!(returned_id > stream_id);
         assert_eq!(stream.entries.len(), 4);
 
         dbg!(stream);
