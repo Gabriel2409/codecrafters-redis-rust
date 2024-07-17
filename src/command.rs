@@ -482,8 +482,12 @@ impl RedisCommand {
                             .map(|(id, store)| RedisValue::Array(2, vec![id, store]))
                             .collect::<Vec<_>>();
 
-                        let b = RedisValue::Array(intermediate.len(), intermediate);
-                        RedisValue::Array(2, vec![RedisValue::bulkstring_from(key), b])
+                        let key_and_intermediate =
+                            RedisValue::Array(intermediate.len(), intermediate);
+                        RedisValue::Array(
+                            2,
+                            vec![RedisValue::bulkstring_from(key), key_and_intermediate],
+                        )
                     })
                     .collect::<Vec<_>>();
                 Ok(RedisValue::Array(comb.len(), comb))
