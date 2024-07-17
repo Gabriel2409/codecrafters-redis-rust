@@ -82,7 +82,7 @@ impl TryFrom<&str> for StreamId {
             None => (value, None),
             Some((ts, seq)) => (ts, Some(seq)),
         };
-        if ts.len() != 13 {
+        if ts.len() > 13 {
             Err(Error::CantConvertToMsTimestamp(ts.to_string()))?;
         }
         let timestamp_ms = ts.parse::<u64>()?;
