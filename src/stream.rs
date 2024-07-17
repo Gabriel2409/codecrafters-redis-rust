@@ -64,7 +64,14 @@ impl Stream {
                     None => 0,
                     Some("*") => {
                         let last_stream_id = self.get_last_stream_id();
-                        last_stream_id.seq_number + 1
+
+                        if last_stream_id.timestamp_ms == timestamp_ms {
+                            last_stream_id.seq_number + 1
+                        } else if timestamp_ms == 0 {
+                            1
+                        } else {
+                            0
+                        }
                     }
                     Some(seq) => seq.parse::<u64>()?,
                 };
