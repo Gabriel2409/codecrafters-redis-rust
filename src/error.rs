@@ -26,7 +26,10 @@ pub enum Error {
     CantConvertToMsTimestamp(String),
 
     #[error("Stream id is invalid.It must be greater than the specified string")]
-    StreamIdMustBeGreaterThan(String),
+    InvalidStreamId {
+        should_be_greater_than: String,
+        got: String,
+    },
 
     #[error("WRONGTYPE Operation agains a key holding the wrong kind of value")]
     WrongTypeOperation,

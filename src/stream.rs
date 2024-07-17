@@ -55,9 +55,10 @@ impl Stream {
             None => self.next_stream_id(),
             Some(stream_id) => {
                 if stream_id <= self.get_last_stream_id() {
-                    Err(Error::StreamIdMustBeGreaterThan(
-                        self.get_last_stream_id().to_string(),
-                    ))?
+                    Err(Error::InvalidStreamId {
+                        should_be_greater_than: self.get_last_stream_id().to_string(),
+                        got: stream_id.to_string(),
+                    })?
                 } else {
                     stream_id
                 }
