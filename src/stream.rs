@@ -128,15 +128,17 @@ impl Stream {
             }
         };
         let end_index = match stream_id_end {
-            "+" => self.entries.len() - 1,
+            "+" => self.entries.len(),
             stream_id_end => {
                 let stream_id_end = self.create_stream_id(stream_id_end)?;
+                dbg!(stream_id_end);
                 self.entries
                     .iter()
-                    .position(|x| x.stream_id < stream_id_end)
-                    .unwrap_or_else(|| self.entries.len() - 1)
+                    .position(|x| x.stream_id > stream_id_end)
+                    .unwrap_or(self.entries.len())
             }
         };
+        dbg!(start_index, end_index);
         match start_index {
             None => Ok(vec![]),
             Some(start_index) => {

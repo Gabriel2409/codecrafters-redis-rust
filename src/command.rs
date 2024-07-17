@@ -273,7 +273,7 @@ impl TryFrom<&RedisValue> for RedisCommand {
 
                                     let key = args_as_strings[0].clone();
                                     let stream_id_start = args_as_strings[1].clone();
-                                    let stream_id_end = args_as_strings[1].clone();
+                                    let stream_id_end = args_as_strings[2].clone();
                                     Ok(RedisCommand::Xrange {
                                         key,
                                         stream_id_start,
