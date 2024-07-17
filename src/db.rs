@@ -189,6 +189,26 @@ impl RedisDb {
             _ => Err(Error::WrongTypeOperation)?,
         }
     }
+
+    pub fn xread(
+        &self,
+        key: &str,
+        stream_id_start: &str,
+    ) -> Result<Vec<(String, HashMap<String, String>)>> {
+        let mut inner = self.inner.borrow_mut();
+
+        // Actually creates a stream if does not exist. Not sure if correct
+        let db_value = inner
+            .store
+            .entry(key.to_string())
+            .or_insert_with(|| DbValue::new(ValueType::Stream(Stream::new()), None));
+
+        match &mut db_value.value {
+            ValueType::Stream(stream) => stream.xread(stream_id_start),
+            _ => Err(Error::WrongTypeOperation)?,
+        }
+    }
+
     pub fn keys(&self, pat: &str) -> Vec<String> {
         self.inner
             .borrow()

@@ -36,6 +36,9 @@ pub enum RedisCommand {
         stream_id_start: String,
         stream_id_end: String,
     },
+    Xread {
+        key_offset_pairs: Vec<(String, String)>,
+    },
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -281,6 +284,43 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     })
                                 }
                             }
+
+                            "xread" => {
+                                if nb_elements < 4 || nb_elements % 2 != 0 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    let args_as_strings = args
+                                        .iter()
+                                        .map(|el| {
+                                            if let RedisValue::BulkString(_, val) = el {
+                                                Ok(val.clone())
+                                            } else {
+                                                Err(Error::InvalidRedisValue(redis_value.clone()))
+                                            }
+                                        })
+                                        // NOTE: transforms a vec of result into result of vec
+                                        .collect::<Result<Vec<_>>>()?;
+
+                                    if args_as_strings[0] != "streams" {
+                                        Err(Error::InvalidRedisValue(redis_value.clone()))?
+                                    }
+
+                                    let offset = (nb_elements - 2) / 2;
+
+                                    let mut key_offset_pairs = Vec::new();
+
+                                    let mut i = 1;
+                                    while i + offset < args_as_strings.len() {
+                                        key_offset_pairs.push((
+                                            args_as_strings[i].clone(),
+                                            args_as_strings[i + offset].clone(),
+                                        ));
+                                        i += 1;
+                                    }
+
+                                    Ok(RedisCommand::Xread { key_offset_pairs })
+                                }
+                            }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -418,6 +458,34 @@ impl RedisCommand {
                     .collect::<Vec<_>>();
 
                 Ok(RedisValue::Array(intermediate.len(), intermediate))
+            }
+            Self::Xread { key_offset_pairs } => {
+                let comb = key_offset_pairs
+                    .iter()
+                    .map(|(key, stream_id_start)| {
+                        let intermediate = db
+                            .xread(key, stream_id_start)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|(id, store)| {
+                                (
+                                    RedisValue::bulkstring_from(id),
+                                    RedisValue::array_of_bulkstrings_from(
+                                        &store
+                                            .iter()
+                                            .map(|(k, v)| format!("{} {}", k, v))
+                                            .collect::<Vec<_>>()
+                                            .join(" "),
+                                    ),
+                                )
+                            })
+                            .map(|(id, store)| RedisValue::Array(2, vec![id, store]))
+                            .collect::<Vec<_>>();
+
+                        RedisValue::Array(intermediate.len(), intermediate)
+                    })
+                    .collect::<Vec<_>>();
+                Ok(RedisValue::Array(comb.len(), comb))
             }
         }
     }

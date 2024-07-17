@@ -138,13 +138,46 @@ impl Stream {
                     .unwrap_or(self.entries.len())
             }
         };
-        dbg!(start_index, end_index);
         match start_index {
             None => Ok(vec![]),
             Some(start_index) => {
                 let mut v = Vec::new();
                 // NOTE: really not optimized with vecdeque
                 for i in start_index..end_index {
+                    let entry = &self.entries[i];
+                    v.push((entry.stream_id.to_string(), entry.store.clone()));
+                }
+                Ok(v)
+            }
+        }
+    }
+
+    pub fn xread(
+        &mut self,
+        stream_id_start: &str,
+    ) -> Result<Vec<(String, HashMap<String, String>)>> {
+        if self.entries.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let start_index = {
+            match stream_id_start {
+                "-" => Some(0),
+                stream_id_start => {
+                    let stream_id_start = self.create_stream_id(stream_id_start)?;
+                    self.entries
+                        .iter()
+                        // Diff with xrange
+                        .position(|x| x.stream_id > stream_id_start)
+                }
+            }
+        };
+        match start_index {
+            None => Ok(vec![]),
+            Some(start_index) => {
+                let mut v = Vec::new();
+                // NOTE: really not optimized with vecdeque
+                for i in start_index..self.entries.len() {
                     let entry = &self.entries[i];
                     v.push((entry.stream_id.to_string(), entry.store.clone()));
                 }
