@@ -7,7 +7,7 @@ use std::{
 use crate::{Error, Result};
 #[derive(Debug, Clone)]
 pub struct Stream {
-    entries: VecDeque<StreamEntry>,
+    pub entries: VecDeque<StreamEntry>,
 }
 
 impl Stream {
@@ -106,6 +106,50 @@ impl Stream {
 
         Ok(stream_id)
     }
+
+    pub fn xrange(
+        &mut self,
+        stream_id_start: &str,
+        stream_id_end: &str,
+    ) -> Result<Vec<(String, HashMap<String, String>)>> {
+        if self.entries.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let start_index = {
+            match stream_id_start {
+                "-" => Some(0),
+                stream_id_start => {
+                    let stream_id_start = self.create_stream_id(stream_id_start)?;
+                    self.entries
+                        .iter()
+                        .position(|x| x.stream_id >= stream_id_start)
+                }
+            }
+        };
+        let end_index = match stream_id_end {
+            "+" => self.entries.len() - 1,
+            stream_id_end => {
+                let stream_id_end = self.create_stream_id(stream_id_end)?;
+                self.entries
+                    .iter()
+                    .position(|x| x.stream_id < stream_id_end)
+                    .unwrap_or_else(|| self.entries.len() - 1)
+            }
+        };
+        match start_index {
+            None => Ok(vec![]),
+            Some(start_index) => {
+                let mut v = Vec::new();
+                // NOTE: really not optimized with vecdeque
+                for i in start_index..end_index {
+                    let entry = &self.entries[i];
+                    v.push((entry.stream_id.to_string(), entry.store.clone()));
+                }
+                Ok(v)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -121,7 +165,7 @@ impl Display for StreamId {
 }
 
 #[derive(Debug, Clone)]
-struct StreamEntry {
+pub struct StreamEntry {
     stream_id: StreamId,
     store: HashMap<String, String>,
 }

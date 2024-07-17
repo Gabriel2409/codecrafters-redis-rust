@@ -3,7 +3,7 @@ use mio::Token;
 
 use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
-use crate::stream::Stream;
+use crate::stream::{Stream, StreamEntry};
 use crate::token::TokenTrack;
 use crate::{Error, Result};
 use std::cell::RefCell;
@@ -170,6 +170,25 @@ impl RedisDb {
         }
     }
 
+    pub fn xrange(
+        &self,
+        key: &str,
+        stream_id_start: &str,
+        stream_id_end: &str,
+    ) -> Result<Vec<(String, HashMap<String, String>)>> {
+        let mut inner = self.inner.borrow_mut();
+
+        // Actually creates a stream if does not exist. Not sure if correct
+        let db_value = inner
+            .store
+            .entry(key.to_string())
+            .or_insert_with(|| DbValue::new(ValueType::Stream(Stream::new()), None));
+
+        match &mut db_value.value {
+            ValueType::Stream(stream) => stream.xrange(stream_id_start, stream_id_end),
+            _ => Err(Error::WrongTypeOperation)?,
+        }
+    }
     pub fn keys(&self, pat: &str) -> Vec<String> {
         self.inner
             .borrow()
@@ -271,20 +290,4 @@ impl RedisDb {
             }
         }
     }
-
-    // adds to the underlying stream and returns the id as String
-    // pub fn xadd(
-    //     &self,
-    //     key: &str,
-    //     stream_id: &str,
-    //     store: &HashMap<String, String>,
-    // ) -> Result<String> {
-    //     let val = self.get(key);
-    //     match val {
-    //         None => self.set(key.to_string(), ValueType::Stream(Stream::new()), None),
-    //         Some(ValueType::Stream(_)) => {}
-    //         Some(_) => Err(Error::WrongTypeOperation)?,
-    //     }
-    //     Ok("AA".to_string())
-    // }
 }
