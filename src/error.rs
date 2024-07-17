@@ -25,6 +25,9 @@ pub enum Error {
     #[error("Can't convert this to a timestamp in milliseconds")]
     CantConvertToMsTimestamp(String),
 
+    #[error("Stream id is invalid")]
+    InvalidStreamId,
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
