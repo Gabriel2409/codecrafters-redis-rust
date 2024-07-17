@@ -235,7 +235,7 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     let stream_id = args_as_strings[1].clone();
                                     let mut store = HashMap::new();
                                     let mut i = 2;
-                                    while i < nb_elements {
+                                    while i < nb_elements - 1 {
                                         store.insert(
                                             args_as_strings[i].clone(),
                                             args_as_strings[i + 1].clone(),

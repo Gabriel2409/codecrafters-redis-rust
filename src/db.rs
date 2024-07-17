@@ -153,14 +153,15 @@ impl RedisDb {
         stream_id: &str,
         store: HashMap<String, String>,
     ) -> Result<String> {
-        let db_value = self
-            .inner
-            .borrow_mut()
+        let mut inner = self.inner.borrow_mut();
+
+        let db_value = inner
             .store
             .entry(key.to_string())
-            .or_insert(DbValue::new(ValueType::Stream(Stream::new()), None));
-        match db_value.value {
-            ValueType::Stream(mut stream) => {
+            .or_insert_with(|| DbValue::new(ValueType::Stream(Stream::new()), None));
+
+        match &mut db_value.value {
+            ValueType::Stream(stream) => {
                 let stream_id = match stream_id {
                     "*" => None,
                     x => Some(x.try_into()?),
