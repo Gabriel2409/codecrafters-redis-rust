@@ -7,16 +7,18 @@ use std::{
 use crate::{Error, Result};
 #[derive(Debug, Clone)]
 pub struct Stream {
-    last_stream_id: StreamId,
     entries: VecDeque<StreamEntry>,
 }
 
 impl Stream {
     pub fn new() -> Self {
         Self {
-            last_stream_id: StreamId::default(),
             entries: VecDeque::from([]),
         }
+    }
+
+    pub fn get_last_stream_id(&self) -> StreamId {
+        self.entries.back().map(|s| s.stream_id).unwrap_or_default()
     }
 
     /// Generates a new stream id compatible with the stream
@@ -24,18 +26,17 @@ impl Stream {
         let since_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time should not go backward");
+
+        let last_stream_id = self.get_last_stream_id();
+
         let current_timestamp_in_ms =
             since_epoch.as_secs() * 1000 + since_epoch.subsec_nanos() as u64 / 1000000;
-
         // We force timestamp_ms to be at least equal to last timestamp in stream
         let (timestamp_ms, seq_number) = {
-            if current_timestamp_in_ms > self.last_stream_id.timestamp_ms {
+            if current_timestamp_in_ms > last_stream_id.timestamp_ms {
                 (current_timestamp_in_ms, 0)
             } else {
-                (
-                    self.last_stream_id.timestamp_ms,
-                    self.last_stream_id.timestamp_ms + 1,
-                )
+                (last_stream_id.timestamp_ms, last_stream_id.timestamp_ms + 1)
             }
         };
 
@@ -53,7 +54,7 @@ impl Stream {
         let stream_id = match stream_id {
             None => self.next_stream_id(),
             Some(stream_id) => {
-                if stream_id <= self.last_stream_id {
+                if stream_id <= self.get_last_stream_id() {
                     Err(Error::InvalidStreamId)?
                 } else {
                     stream_id
@@ -67,7 +68,7 @@ impl Stream {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct StreamId {
     timestamp_ms: u64,
     seq_number: u64,
@@ -116,6 +117,10 @@ impl StreamEntry {
 impl Display for StreamEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{ id:{}", self.stream_id)?;
+        for (key, val) in self.store.iter() {
+            write!(f, ", {}:{}", key, val)?;
+        }
+        write!(f, " }}")?;
         Ok(())
     }
 }
@@ -158,9 +163,41 @@ mod tests {
     }
 
     #[test]
-    fn test_stream_entry() -> Result<()> {
-        let initial_input = "1526985054069";
-        let stream_id = StreamId::try_from(initial_input)?;
+    fn test_xadd() -> Result<()> {
+        let mut stream = Stream::new();
+
+        let stream_id = StreamId::try_from("1526985054069-87")?;
+        let mut store = HashMap::new();
+        store.insert("key1".to_string(), "value1".to_string());
+        stream.xadd(store.clone(), Some(stream_id))?;
+        assert_eq!(stream.entries.len(), 1);
+
+        let same_insert = stream.xadd(store.clone(), Some(stream_id));
+        assert!(same_insert.is_err());
+        assert_eq!(stream.entries.len(), 1);
+
+        let prev_seq_stream_id = StreamId::try_from("1526985054069-86")?;
+        let prev_seq_insert = stream.xadd(store.clone(), Some(prev_seq_stream_id));
+        assert!(prev_seq_insert.is_err());
+        assert_eq!(stream.entries.len(), 1);
+
+        let prev_timestamp_stream_id = StreamId::try_from("1526985054068-87")?;
+        let prev_timestamp_insert = stream.xadd(store.clone(), Some(prev_timestamp_stream_id));
+        assert!(prev_timestamp_insert.is_err());
+        assert_eq!(stream.entries.len(), 1);
+
+        let next_seq_stream_id = StreamId::try_from("1526985054069-88")?;
+        stream.xadd(store.clone(), Some(next_seq_stream_id))?;
+        assert_eq!(stream.entries.len(), 2);
+
+        let next_timestamp_stream_id = StreamId::try_from("1526985054070-87")?;
+        stream.xadd(store.clone(), Some(next_timestamp_stream_id))?;
+        assert_eq!(stream.entries.len(), 3);
+
+        stream.xadd(store.clone(), None)?;
+        assert_eq!(stream.entries.len(), 4);
+
+        dbg!(stream);
 
         Ok(())
     }
