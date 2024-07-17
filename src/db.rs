@@ -3,8 +3,9 @@ use mio::Token;
 
 use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
+use crate::stream::Stream;
 use crate::token::TokenTrack;
-use crate::Result;
+use crate::{Error, Result};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
@@ -25,15 +26,16 @@ pub enum ConnectionState {
 }
 
 #[derive(Debug, Clone)]
-struct DbValue {
-    value: ValueType,
-    expires_at: Option<Instant>,
+pub struct DbValue {
+    pub value: ValueType,
+    pub expires_at: Option<Instant>,
 }
 
+// TODO: rename
 #[derive(Debug, Clone)]
 pub enum ValueType {
     String(String),
-    Stream,
+    Stream(Stream),
 }
 
 impl DbValue {
@@ -145,6 +147,31 @@ impl RedisDb {
         }
     }
 
+    pub fn xadd(
+        &self,
+        key: &str,
+        stream_id: &str,
+        store: HashMap<String, String>,
+    ) -> Result<String> {
+        let db_value = self
+            .inner
+            .borrow_mut()
+            .store
+            .entry(key.to_string())
+            .or_insert(DbValue::new(ValueType::Stream(Stream::new()), None));
+        match db_value.value {
+            ValueType::Stream(mut stream) => {
+                let stream_id = match stream_id {
+                    "*" => None,
+                    x => Some(x.try_into()?),
+                };
+                let returned_stream_id = stream.xadd(store, stream_id)?;
+                Ok(returned_stream_id.to_string())
+            }
+            _ => Err(Error::WrongTypeOperation)?,
+        }
+    }
+
     pub fn keys(&self, pat: &str) -> Vec<String> {
         self.inner
             .borrow()
@@ -246,4 +273,20 @@ impl RedisDb {
             }
         }
     }
+
+    // adds to the underlying stream and returns the id as String
+    // pub fn xadd(
+    //     &self,
+    //     key: &str,
+    //     stream_id: &str,
+    //     store: &HashMap<String, String>,
+    // ) -> Result<String> {
+    //     let val = self.get(key);
+    //     match val {
+    //         None => self.set(key.to_string(), ValueType::Stream(Stream::new()), None),
+    //         Some(ValueType::Stream(_)) => {}
+    //         Some(_) => Err(Error::WrongTypeOperation)?,
+    //     }
+    //     Ok("AA".to_string())
+    // }
 }

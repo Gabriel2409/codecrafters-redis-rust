@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use crate::db::{RedisDb, ValueType};
 use crate::parser::RedisValue;
+use crate::stream::Stream;
 use crate::{Error, Result};
 
 /// Purpose of this enum is to convert a given redis value to
@@ -23,6 +26,11 @@ pub enum RedisCommand {
     ConfigGet(String),
     Keys(String),
     Type(String),
+    Xadd {
+        key: String,
+        stream_id: String,
+        store: HashMap<String, String>,
+    },
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -207,6 +215,40 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 }
                             }
 
+                            "xadd" => {
+                                if nb_elements < 5 || nb_elements % 2 != 1 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    let args_as_strings = args
+                                        .iter()
+                                        .map(|el| {
+                                            if let RedisValue::BulkString(_, val) = el {
+                                                Ok(val.clone())
+                                            } else {
+                                                Err(Error::InvalidRedisValue(redis_value.clone()))
+                                            }
+                                        })
+                                        // NOTE: transforms a vec of result into result of vec
+                                        .collect::<Result<Vec<_>>>()?;
+
+                                    let key = args_as_strings[0].clone();
+                                    let stream_id = args_as_strings[1].clone();
+                                    let mut store = HashMap::new();
+                                    let mut i = 2;
+                                    while i < nb_elements {
+                                        store.insert(
+                                            args_as_strings[i].clone(),
+                                            args_as_strings[i + 1].clone(),
+                                        );
+                                        i += 2;
+                                    }
+                                    Ok(RedisCommand::Xadd {
+                                        key,
+                                        stream_id,
+                                        store,
+                                    })
+                                }
+                            }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -298,6 +340,14 @@ impl RedisCommand {
 
                     None => Ok(RedisValue::SimpleString("none".to_string())),
                 }
+            }
+            Self::Xadd {
+                key,
+                stream_id,
+                store,
+            } => {
+                let stream_id = db.xadd(key, stream_id, store.clone())?;
+                Ok(RedisValue::bulkstring_from(&stream_id))
             }
         }
     }

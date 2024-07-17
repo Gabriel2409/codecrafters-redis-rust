@@ -28,6 +28,9 @@ pub enum Error {
     #[error("Stream id is invalid")]
     InvalidStreamId,
 
+    #[error("WRONGTYPE Operation agains a key holding the wrong kind of value")]
+    WrongTypeOperation,
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
