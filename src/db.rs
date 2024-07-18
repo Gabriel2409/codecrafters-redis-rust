@@ -230,6 +230,20 @@ impl RedisDb {
         }
     }
 
+    pub fn get_last_stream_id(&self, key: &str) -> Result<String> {
+        let mut inner = self.inner.borrow_mut();
+        // Actually creates a stream if does not exist. Not sure if correct
+        let db_value = inner
+            .store
+            .entry(key.to_string())
+            .or_insert_with(|| DbValue::new(ValueType::Stream(Stream::new()), None));
+
+        match &mut db_value.value {
+            ValueType::Stream(stream) => Ok(stream.get_last_stream_id().to_string()),
+            _ => Err(Error::WrongTypeOperation)?,
+        }
+    }
+
     pub fn keys(&self, pat: &str) -> Vec<String> {
         self.inner
             .borrow()

@@ -123,6 +123,20 @@ pub fn handle_connection(
                     key_offset_pairs,
                 } = redis_command
                 {
+                    let key_offset_pairs = key_offset_pairs
+                        .iter()
+                        .map(|(stream_key, stream_id)| {
+                            if stream_id == "$" {
+                                Ok((
+                                    stream_key.clone(),
+                                    db.get_last_stream_id(stream_key)?.clone(),
+                                ))
+                            } else {
+                                Ok((stream_key.clone(), stream_id.clone()))
+                            }
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+
                     db.state = ConnectionState::BlockingStreams(
                         Instant::now(),
                         Duration::from_millis(block),
