@@ -37,6 +37,7 @@ pub enum RedisCommand {
         stream_id_end: String,
     },
     Xread {
+        block: Option<u64>,
         key_offset_pairs: Vec<(String, String)>,
     },
 }
@@ -301,15 +302,26 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                         // NOTE: transforms a vec of result into result of vec
                                         .collect::<Result<Vec<_>>>()?;
 
-                                    if args_as_strings[0] != "streams" {
+                                    let mut i = 0;
+                                    let mut block = None;
+                                    // handle block
+                                    if args_as_strings[0].to_lowercase() == "block" {
+                                        if nb_elements < 6 {
+                                            Err(Error::InvalidRedisValue(redis_value.clone()))?
+                                        }
+                                        block = Some(args_as_strings[1].parse::<u64>()?);
+                                        i = 2;
+                                    }
+
+                                    if args_as_strings[i] != "streams" {
                                         Err(Error::InvalidRedisValue(redis_value.clone()))?
                                     }
 
-                                    let offset = (nb_elements - 2) / 2;
+                                    let offset = (nb_elements - 2 - i) / 2;
 
                                     let mut key_offset_pairs = Vec::new();
 
-                                    let mut i = 1;
+                                    i += 1;
                                     while i + offset < args_as_strings.len() {
                                         key_offset_pairs.push((
                                             args_as_strings[i].clone(),
@@ -318,7 +330,10 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                         i += 1;
                                     }
 
-                                    Ok(RedisCommand::Xread { key_offset_pairs })
+                                    Ok(dbg!(RedisCommand::Xread {
+                                        block,
+                                        key_offset_pairs,
+                                    }))
                                 }
                             }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
@@ -459,7 +474,10 @@ impl RedisCommand {
 
                 Ok(RedisValue::Array(intermediate.len(), intermediate))
             }
-            Self::Xread { key_offset_pairs } => {
+            Self::Xread {
+                block,
+                key_offset_pairs,
+            } => {
                 let comb = key_offset_pairs
                     .iter()
                     .map(|(key, stream_id_start)| {
