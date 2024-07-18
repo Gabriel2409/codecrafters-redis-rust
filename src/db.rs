@@ -18,6 +18,7 @@ use crate::parser::RedisValue;
 pub enum ConnectionState {
     Ready,
     Waiting(Instant, Duration, u64, u64),
+    BlockingStreams(Instant, Duration, Vec<(String, String)>),
     BeforePing,
     BeforeReplConf1,
     BeforeReplConf2,

@@ -330,10 +330,10 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                         i += 1;
                                     }
 
-                                    Ok(dbg!(RedisCommand::Xread {
+                                    Ok(RedisCommand::Xread {
                                         block,
                                         key_offset_pairs,
-                                    }))
+                                    })
                                 }
                             }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),

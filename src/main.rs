@@ -14,6 +14,7 @@ pub use crate::error::{Error, Result};
 use crate::parser::RedisValue;
 use crate::token::{FIRST_UNIQUE_TOKEN, MASTER, SERVER};
 
+use command::RedisCommand;
 use connection_handler::handle_connection;
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
@@ -23,6 +24,7 @@ use std::io::{ErrorKind, Write};
 use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use tokio::time::Timeout;
 
 use clap::Parser;
 
@@ -102,8 +104,9 @@ fn main() -> Result<()> {
     }
 
     // tracks client calling wait. Note that we can only handle one wait.
-    // TODO: improve WAIT flow
+    // TODO: improve WAIT and BLOCK flow
     let mut waiting_token = None;
+    let mut blocking_stream_token = None;
 
     loop {
         // Poll Mio for events, blocking until we get an event or for 50 ms.
@@ -192,6 +195,8 @@ fn main() -> Result<()> {
                         // process is not really robust
                         if let ConnectionState::Waiting(_, _, _, _) = db.state {
                             waiting_token = Some(token);
+                        } else if let ConnectionState::BlockingStreams(_, _, _) = db.state {
+                            blocking_stream_token = Some(token);
                         } else if let Some(mut connection) = connections.remove(&token) {
                             if register {
                                 // Here we register the connection with the correct token so
@@ -216,24 +221,46 @@ fn main() -> Result<()> {
 
         // Final check on waiting state. if we are in waiting state and we either waited
         // enough or have enough ack, we write back to the waiting connection
-        if let ConnectionState::Waiting(
-            inititial_time,
-            timeout,
-            requested_replicas,
-            obtained_replicas,
-        ) = db.state
-        {
-            if obtained_replicas >= requested_replicas || inititial_time + timeout <= Instant::now()
-            {
-                let redis_value = RedisValue::Integer(obtained_replicas as i64);
 
-                if let Some(waiting_connection) =
-                    connections.get_mut(&waiting_token.expect("Waiting token should be set"))
+        match db.state {
+            ConnectionState::Waiting(
+                inititial_time,
+                timeout,
+                requested_replicas,
+                obtained_replicas,
+            ) => {
+                if obtained_replicas >= requested_replicas
+                    || inititial_time + timeout <= Instant::now()
                 {
-                    waiting_connection.write_all(redis_value.to_string().as_bytes())?;
+                    let redis_value = RedisValue::Integer(obtained_replicas as i64);
+
+                    if let Some(waiting_connection) =
+                        connections.get_mut(&waiting_token.expect("Waiting token should be set"))
+                    {
+                        waiting_connection.write_all(redis_value.to_string().as_bytes())?;
+                        db.state = ConnectionState::Ready;
+                    }
+                }
+            }
+            ConnectionState::BlockingStreams(initial_time, timeout, ref key_offset_pairs) => {
+                if timeout > Duration::from_millis(0) && initial_time + timeout <= Instant::now() {
+                    if let Some(blocking_stream_connection) = connections.get_mut(
+                        &blocking_stream_token.expect("blocking stream token should be set"),
+                    ) {
+                        let redis_command = RedisCommand::Xread {
+                            block: None,
+                            key_offset_pairs: key_offset_pairs.clone(),
+                        };
+
+                        let response_redis_value = redis_command.execute(&db)?;
+
+                        blocking_stream_connection
+                            .write_all(response_redis_value.to_string().as_bytes())?;
+                    }
                     db.state = ConnectionState::Ready;
                 }
             }
+            _ => (),
         }
     }
 }

@@ -100,8 +100,10 @@ pub fn handle_connection(
             ConnectionState::Waiting(_, _, _, _) => {
                 // TODO: handle commands launched while waiting
             }
+            ConnectionState::BlockingStreams(_, _, _) => {}
             ConnectionState::Ready => {
                 let redis_command = RedisCommand::try_from(&redis_value)?;
+                // Special handling of WAIT command
                 if let RedisCommand::Wait(nb_replicas, timeout) = redis_command {
                     db.state = ConnectionState::Waiting(
                         Instant::now(),
@@ -112,6 +114,23 @@ pub fn handle_connection(
                     let redis_value = RedisValue::array_of_bulkstrings_from("REPLCONF GETACK *");
                     db.send_to_replicas(redis_value, true)?;
 
+                    return Ok((true, false));
+                }
+
+                // Special handling of BLOCK command
+                if let RedisCommand::Xread {
+                    block: Some(block),
+                    key_offset_pairs,
+                } = redis_command
+                {
+                    db.state = ConnectionState::BlockingStreams(
+                        Instant::now(),
+                        Duration::from_millis(block),
+                        key_offset_pairs,
+                    );
+
+                    let processed_bytes = redis_value.to_string().as_bytes().len();
+                    db.processed_bytes += processed_bytes;
                     return Ok((true, false));
                 }
 
