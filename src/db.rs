@@ -109,7 +109,6 @@ pub struct RedisDb {
     pub state: ConnectionState,
     inner: Rc<RefCell<InnerRedisDb>>,
     pub replicas: Vec<Replica>,
-    pub waiting_connection: Option<Rc<RefCell<TcpStream>>>,
     pub processed_bytes: usize,
     pub token_track: TokenTrack,
 }
@@ -122,7 +121,6 @@ impl RedisDb {
             inner: Rc::new(RefCell::new(InnerRedisDb::build())),
             replicas: Vec::new(),
             processed_bytes: 0,
-            waiting_connection: None,
             token_track: TokenTrack::new(),
         }
     }
@@ -243,10 +241,6 @@ impl RedisDb {
             .find(|replica| replica.token == token)
             .expect("Replica should exist")
             .up_to_date = true;
-    }
-
-    pub fn set_waiting_connection(&mut self, waiting_connection: TcpStream) {
-        self.waiting_connection = Some(Rc::new(RefCell::new(waiting_connection)));
     }
 
     /// Starts the handshake process: A replica sends a ping to the master
