@@ -95,8 +95,6 @@ pub fn handle_connection(
                 _ => Err(Error::InvalidAnswerDuringHandshake(redis_value.clone()))?,
             },
             ConnectionState::BeforePsync => {
-                // Avoid jumbled mess
-                std::thread::sleep(Duration::from_millis(25));
                 db.state = ConnectionState::BeforeRdbFile;
             }
             ConnectionState::Waiting(_, _, _, _) => {
