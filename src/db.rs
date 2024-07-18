@@ -149,6 +149,32 @@ impl RedisDb {
         }
     }
 
+    pub fn incr(&self, key: &str) -> Result<i64> {
+        let mut db = self.inner.borrow_mut();
+        let db_value = db.store.get_mut(key);
+        match db_value {
+            None => {
+                db.store.insert(
+                    key.to_string(),
+                    DbValue {
+                        value: ValueType::String("1".to_string()),
+                        expires_at: None,
+                    },
+                );
+                Ok(1)
+            }
+            Some(DbValue {
+                value: ValueType::String(ref mut val),
+                expires_at: _,
+            }) => {
+                let incremented = val.parse::<i64>()? + 1;
+                *val = format!("{}", incremented);
+                Ok(incremented)
+            }
+            _ => Err(Error::WrongTypeOperation),
+        }
+    }
+
     pub fn xadd(
         &mut self,
         key: &str,

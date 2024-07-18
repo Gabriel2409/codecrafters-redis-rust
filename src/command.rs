@@ -14,6 +14,7 @@ pub enum RedisCommand {
     Echo(String),
     Set(String, String, Option<u64>),
     Get(String),
+    Incr(String),
     Info(String),
     /// All replconfs except for GETACK *
     ReplConf,
@@ -126,6 +127,18 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     }
                                 }
                             }
+                            "incr" => {
+                                if nb_elements != 2 {
+                                    Err(Error::InvalidRedisValue(redis_value.clone()))
+                                } else {
+                                    match &args[0] {
+                                        RedisValue::BulkString(_, key) => {
+                                            Ok(RedisCommand::Incr(key.clone()))
+                                        }
+                                        _ => Err(Error::InvalidRedisValue(redis_value.clone())),
+                                    }
+                                }
+                            }
                             "info" => {
                                 if nb_elements != 2 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
@@ -228,17 +241,10 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 if nb_elements < 5 || nb_elements % 2 != 1 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
-                                    let args_as_strings = args
-                                        .iter()
-                                        .map(|el| {
-                                            if let RedisValue::BulkString(_, val) = el {
-                                                Ok(val.clone())
-                                            } else {
-                                                Err(Error::InvalidRedisValue(redis_value.clone()))
-                                            }
-                                        })
-                                        // NOTE: transforms a vec of result into result of vec
-                                        .collect::<Result<Vec<_>>>()?;
+                                    let args_as_strings = get_strings_from_bulkstrings(args)
+                                        .map_err(|_| {
+                                            Error::InvalidRedisValue(redis_value.clone())
+                                        })?;
 
                                     let key = args_as_strings[0].clone();
                                     let stream_id = args_as_strings[1].clone();
@@ -263,17 +269,10 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 if nb_elements != 4 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
-                                    let args_as_strings = args
-                                        .iter()
-                                        .map(|el| {
-                                            if let RedisValue::BulkString(_, val) = el {
-                                                Ok(val.clone())
-                                            } else {
-                                                Err(Error::InvalidRedisValue(redis_value.clone()))
-                                            }
-                                        })
-                                        // NOTE: transforms a vec of result into result of vec
-                                        .collect::<Result<Vec<_>>>()?;
+                                    let args_as_strings = get_strings_from_bulkstrings(args)
+                                        .map_err(|_| {
+                                            Error::InvalidRedisValue(redis_value.clone())
+                                        })?;
 
                                     let key = args_as_strings[0].clone();
                                     let stream_id_start = args_as_strings[1].clone();
@@ -290,17 +289,10 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 if nb_elements < 4 || nb_elements % 2 != 0 {
                                     Err(Error::InvalidRedisValue(redis_value.clone()))
                                 } else {
-                                    let args_as_strings = args
-                                        .iter()
-                                        .map(|el| {
-                                            if let RedisValue::BulkString(_, val) = el {
-                                                Ok(val.clone())
-                                            } else {
-                                                Err(Error::InvalidRedisValue(redis_value.clone()))
-                                            }
-                                        })
-                                        // NOTE: transforms a vec of result into result of vec
-                                        .collect::<Result<Vec<_>>>()?;
+                                    let args_as_strings = get_strings_from_bulkstrings(args)
+                                        .map_err(|_| {
+                                            Error::InvalidRedisValue(redis_value.clone())
+                                        })?;
 
                                     let mut i = 0;
                                     let mut block = None;
@@ -374,6 +366,12 @@ impl RedisCommand {
                     None => Ok(RedisValue::NullBulkString),
                 }
             }
+            Self::Incr(key) => match db.incr(key) {
+                Ok(val) => Ok(RedisValue::Integer(val)),
+                Err(_) => Ok(RedisValue::SimpleError(
+                    "ERR value is not an integer or out of range".to_string(),
+                )),
+            },
             Self::Info(x) => match x.as_str() {
                 "replication" => {
                     let answer = db.info.to_string();
@@ -521,4 +519,17 @@ impl RedisCommand {
             }
         }
     }
+}
+
+pub fn get_strings_from_bulkstrings(args: &[RedisValue]) -> Result<Vec<String>> {
+    args.iter()
+        .map(|el| {
+            if let RedisValue::BulkString(_, val) = el {
+                Ok(val.clone())
+            } else {
+                Err(Error::InvalidRedisValue(el.clone()))
+            }
+        })
+        // NOTE: transforms a vec of result into result of vec
+        .collect::<Result<Vec<_>>>()
 }
