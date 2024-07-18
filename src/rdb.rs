@@ -55,14 +55,14 @@ fn parse_version() -> BinResult<u8> {
 
     reader.read_exact(&mut buf)?;
 
-    let version_str = String::from_utf8(buf).map_err(|x| binrw::Error::AssertFail {
+    let version_str = String::from_utf8(buf).map_err(|_| binrw::Error::AssertFail {
         pos: 0,
         message: "Invalid version".to_string(),
     })?;
 
     let version = version_str
         .parse::<u8>()
-        .map_err(|x| binrw::Error::AssertFail {
+        .map_err(|_| binrw::Error::AssertFail {
             pos: 0,
             message: "Invalid version".to_string(),
         })?;

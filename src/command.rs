@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::db::{RedisDb, ValueType};
 use crate::parser::RedisValue;
-use crate::stream::Stream;
 use crate::{Error, Result};
 
 /// Purpose of this enum is to convert a given redis value to

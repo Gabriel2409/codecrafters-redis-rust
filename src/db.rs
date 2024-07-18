@@ -3,7 +3,7 @@ use mio::Token;
 
 use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
-use crate::stream::{PendingStreamXread, Stream, StreamEntry};
+use crate::stream::{PendingStreamXread, Stream};
 use crate::token::TokenTrack;
 use crate::{Error, Result};
 use std::cell::RefCell;
@@ -270,7 +270,7 @@ impl RedisDb {
         }
     }
 
-    pub fn keys(&self, pat: &str) -> Vec<String> {
+    pub fn keys(&self, _pat: &str) -> Vec<String> {
         self.inner
             .borrow()
             .store

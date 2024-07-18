@@ -53,7 +53,7 @@ impl Stream {
         match value {
             "*" => Ok(self.next_stream_id()),
             value => {
-                let (ts, seq) = match value.split_once("-") {
+                let (ts, seq) = match value.split_once('-') {
                     None => (value, None),
                     Some((ts, seq)) => (ts, Some(seq)),
                 };
@@ -133,7 +133,6 @@ impl Stream {
             "+" => self.entries.len(),
             stream_id_end => {
                 let stream_id_end = self.create_stream_id(stream_id_end)?;
-                dbg!(stream_id_end);
                 self.entries
                     .iter()
                     .position(|x| x.stream_id > stream_id_end)
@@ -186,6 +185,12 @@ impl Stream {
                 Ok(v)
             }
         }
+    }
+}
+
+impl Default for Stream {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
