@@ -1,8 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+use mio::Token;
 
 use crate::{Error, Result};
 #[derive(Debug, Clone)]
@@ -219,6 +221,14 @@ impl Display for StreamEntry {
         write!(f, " }}")?;
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingStreamXread {
+    pub connection_token: Token,
+    pub initial_time: Instant,
+    pub timeout: Duration,
+    pub key_offset_pairs: Vec<(String, String)>,
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use mio::Token;
 
 use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
-use crate::stream::{Stream, StreamEntry};
+use crate::stream::{PendingStreamXread, Stream, StreamEntry};
 use crate::token::TokenTrack;
 use crate::{Error, Result};
 use std::cell::RefCell;
@@ -111,6 +111,8 @@ pub struct RedisDb {
     pub replicas: Vec<Replica>,
     pub processed_bytes: usize,
     pub token_track: TokenTrack,
+    // NOTE: only one pending xread allowed
+    pub pending_stream_xread: Option<PendingStreamXread>,
 }
 
 impl RedisDb {
@@ -122,6 +124,7 @@ impl RedisDb {
             replicas: Vec::new(),
             processed_bytes: 0,
             token_track: TokenTrack::new(),
+            pending_stream_xread: None,
         }
     }
 
