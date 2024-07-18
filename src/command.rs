@@ -500,15 +500,24 @@ impl RedisCommand {
                             .map(|(id, store)| RedisValue::Array(2, vec![id, store]))
                             .collect::<Vec<_>>();
 
-                        let key_and_intermediate =
-                            RedisValue::Array(intermediate.len(), intermediate);
-                        RedisValue::Array(
-                            2,
-                            vec![RedisValue::bulkstring_from(key), key_and_intermediate],
-                        )
+                        if intermediate.is_empty() {
+                            RedisValue::Array(1, vec![RedisValue::bulkstring_from(key)])
+                        } else {
+                            let key_and_intermediate =
+                                RedisValue::Array(intermediate.len(), intermediate);
+                            RedisValue::Array(
+                                2,
+                                vec![RedisValue::bulkstring_from(key), key_and_intermediate],
+                            )
+                        }
                     })
                     .collect::<Vec<_>>();
-                Ok(RedisValue::Array(comb.len(), comb))
+
+                if comb.iter().all(|el| matches!(el, RedisValue::Array(1, _))) {
+                    Ok(RedisValue::NullBulkString)
+                } else {
+                    Ok(RedisValue::Array(comb.len(), comb))
+                }
             }
         }
     }
