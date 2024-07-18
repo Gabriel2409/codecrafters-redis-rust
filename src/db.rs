@@ -150,12 +150,31 @@ impl RedisDb {
     }
 
     pub fn xadd(
-        &self,
+        &mut self,
         key: &str,
         stream_id: &str,
         store: HashMap<String, String>,
     ) -> Result<String> {
         let mut inner = self.inner.borrow_mut();
+
+        // NOTE: Here we just handle the case where we set a blocking connection with no
+        // timeout
+        if let Some(PendingStreamXread {
+            connection_token: _,
+            initial_time: _,
+            ref mut timeout,
+            ref key_offset_pairs,
+        }) = self.pending_stream_xread
+        {
+            // we set the timeout to 1 ms so that it returns directly
+            if *timeout == Duration::from_millis(0)
+                && key_offset_pairs
+                    .iter()
+                    .any(|(stream_key, _)| key == stream_key)
+            {
+                *timeout = Duration::from_millis(1);
+            }
+        }
 
         let db_value = inner
             .store

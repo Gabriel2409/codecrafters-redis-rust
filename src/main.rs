@@ -244,7 +244,7 @@ fn main() -> Result<()> {
                         key_offset_pairs: key_offset_pairs.clone(),
                     };
 
-                    let response_redis_value = redis_command.execute(&db)?;
+                    let response_redis_value = redis_command.execute(&mut db)?;
 
                     blocking_stream_connection
                         .write_all(response_redis_value.to_string().as_bytes())?;

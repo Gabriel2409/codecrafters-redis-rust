@@ -355,7 +355,7 @@ impl RedisCommand {
     }
 
     /// Executes command and returns a RedisValue on success
-    pub fn execute(&self, db: &RedisDb) -> Result<RedisValue> {
+    pub fn execute(&self, db: &mut RedisDb) -> Result<RedisValue> {
         match self {
             Self::Ping => Ok(RedisValue::SimpleString("PONG".to_string())),
             Self::Echo(x) => Ok(RedisValue::SimpleString(x.clone())),
@@ -475,7 +475,7 @@ impl RedisCommand {
                 Ok(RedisValue::Array(intermediate.len(), intermediate))
             }
             Self::Xread {
-                block,
+                block: _,
                 key_offset_pairs,
             } => {
                 let comb = key_offset_pairs
