@@ -117,6 +117,11 @@ pub fn handle_connection(
                     match redis_command {
                         RedisCommand::Discard => {
                             db.ongoing_transacations.remove(&token);
+                            connection.write_all(
+                                RedisValue::SimpleString("OK".to_string())
+                                    .to_string()
+                                    .as_bytes(),
+                            )?;
                         }
                         RedisCommand::Exec => {
                             let commands = db.ongoing_transacations.remove(&token).unwrap();
