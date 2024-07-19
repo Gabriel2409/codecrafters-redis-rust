@@ -194,6 +194,20 @@ fn main() -> Result<()> {
                         // process is not really robust
                         if let ConnectionState::Waiting(_, _, _, _) = db.state {
                             waiting_token = Some(token);
+                        } else if let ConnectionState::InitiatingTransaction = db.state {
+                            // TODO: check if token already in ongoing_transacations
+                            // and error out if yes.
+                            // Add token to handle_connection directly
+
+                            db.ongoing_transacations.insert(token, Vec::new());
+                            dbg!(&db.ongoing_transacations);
+
+                            connections.get_mut(&token).unwrap().write_all(
+                                RedisValue::SimpleString("OK".to_string())
+                                    .to_string()
+                                    .as_bytes(),
+                            )?;
+                            db.state = ConnectionState::Ready;
                         } else if let ConnectionState::BlockingStreams(
                             initial_time,
                             timeout,

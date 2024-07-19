@@ -101,8 +101,15 @@ pub fn handle_connection(
                 // TODO: handle commands launched while waiting
             }
             ConnectionState::BlockingStreams(_, _, _) => {}
+            ConnectionState::InitiatingTransaction => {}
             ConnectionState::Ready => {
                 let redis_command = RedisCommand::try_from(&redis_value)?;
+
+                if let RedisCommand::Multi = redis_command {
+                    db.state = ConnectionState::InitiatingTransaction;
+                    return Ok((true, false));
+                }
+
                 // Special handling of WAIT command
                 if let RedisCommand::Wait(nb_replicas, timeout) = redis_command {
                     db.state = ConnectionState::Waiting(

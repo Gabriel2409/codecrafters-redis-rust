@@ -1,6 +1,7 @@
 use mio::net::TcpStream;
 use mio::Token;
 
+use crate::command::RedisCommand;
 use crate::rdb::{Rdb, ValueTypeEncoding};
 use crate::replica::Replica;
 use crate::stream::{PendingStreamXread, Stream};
@@ -19,6 +20,7 @@ pub enum ConnectionState {
     Ready,
     Waiting(Instant, Duration, u64, u64),
     BlockingStreams(Instant, Duration, Vec<(String, String)>),
+    InitiatingTransaction,
     BeforePing,
     BeforeReplConf1,
     BeforeReplConf2,
@@ -113,6 +115,7 @@ pub struct RedisDb {
     pub token_track: TokenTrack,
     // NOTE: only one pending xread allowed
     pub pending_stream_xread: Option<PendingStreamXread>,
+    pub ongoing_transacations: HashMap<Token, Vec<RedisCommand>>,
 }
 
 impl RedisDb {
@@ -125,6 +128,7 @@ impl RedisDb {
             processed_bytes: 0,
             token_track: TokenTrack::new(),
             pending_stream_xread: None,
+            ongoing_transacations: HashMap::new(),
         }
     }
 

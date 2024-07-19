@@ -40,6 +40,7 @@ pub enum RedisCommand {
         block: Option<u64>,
         key_offset_pairs: Vec<(String, String)>,
     },
+    Multi,
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -327,6 +328,13 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                     })
                                 }
                             }
+
+                            "multi" => {
+                                if nb_elements != 1 {
+                                    return Err(Error::InvalidRedisValue(redis_value.clone()));
+                                }
+                                Ok(Self::Multi)
+                            }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -515,6 +523,11 @@ impl RedisCommand {
                 } else {
                     Ok(RedisValue::Array(comb.len(), comb))
                 }
+            }
+
+            Self::Multi => {
+                // multi should not be executed in a standard way
+                todo!()
             }
         }
     }
