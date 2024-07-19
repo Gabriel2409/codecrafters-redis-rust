@@ -114,13 +114,50 @@ pub fn handle_connection(
 
                 // check if we are within a transaction
                 if db.ongoing_transacations.contains_key(&token) {
-                    db.ongoing_transacations
-                        .get_mut(&token)
-                        .unwrap()
-                        .push(redis_command);
+                    match redis_command {
+                        RedisCommand::Discard => {
+                            db.ongoing_transacations.remove(&token);
+                        }
+                        RedisCommand::Exec => {
+                            let commands = db.ongoing_transacations.remove(&token).unwrap();
 
-                    let redis_value = RedisValue::SimpleString("QUEUED".to_string());
-                    connection.write_all(redis_value.to_string().as_bytes())?;
+                            let mut result = Vec::new();
+                            for command in commands {
+                                let value = command.execute(db)?;
+                                result.push(value);
+                            }
+                            let redis_value = RedisValue::Array(result.len(), result);
+                            connection.write_all(redis_value.to_string().as_bytes())?;
+                        }
+                        redis_command => {
+                            db.ongoing_transacations
+                                .get_mut(&token)
+                                .unwrap()
+                                .push(redis_command);
+
+                            let redis_value = RedisValue::SimpleString("QUEUED".to_string());
+                            connection.write_all(redis_value.to_string().as_bytes())?;
+                        }
+                    }
+
+                    return Ok((false, false));
+                }
+
+                // handling of exec and discard outside of transaction
+                if let RedisCommand::Exec = redis_command {
+                    connection.write_all(
+                        RedisValue::SimpleError("ERR EXEC without MULTI".to_string())
+                            .to_string()
+                            .as_bytes(),
+                    )?;
+                    return Ok((false, false));
+                }
+                if let RedisCommand::Discard = redis_command {
+                    connection.write_all(
+                        RedisValue::SimpleError("ERR DISCARD without MULTI".to_string())
+                            .to_string()
+                            .as_bytes(),
+                    )?;
                     return Ok((false, false));
                 }
 

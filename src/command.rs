@@ -41,6 +41,8 @@ pub enum RedisCommand {
         key_offset_pairs: Vec<(String, String)>,
     },
     Multi,
+    Exec,
+    Discard,
 }
 
 impl TryFrom<&RedisValue> for RedisCommand {
@@ -335,6 +337,18 @@ impl TryFrom<&RedisValue> for RedisCommand {
                                 }
                                 Ok(Self::Multi)
                             }
+                            "exec" => {
+                                if nb_elements != 1 {
+                                    return Err(Error::InvalidRedisValue(redis_value.clone()));
+                                }
+                                Ok(Self::Exec)
+                            }
+                            "discard" => {
+                                if nb_elements != 1 {
+                                    return Err(Error::InvalidRedisValue(redis_value.clone()));
+                                }
+                                Ok(Self::Discard)
+                            }
                             _ => Err(Error::InvalidRedisValue(redis_value.clone())),
                         }
                     }
@@ -527,6 +541,14 @@ impl RedisCommand {
 
             Self::Multi => {
                 // multi should not be executed in a standard way
+                todo!()
+            }
+            Self::Exec => {
+                // exec should not be executed in a standard way
+                todo!()
+            }
+            Self::Discard => {
+                // discard should not be executed in a standard way
                 todo!()
             }
         }
