@@ -150,7 +150,7 @@ fn main() -> Result<()> {
                     let master_stream_mut = master_stream
                         .as_mut()
                         .expect("Should have a connection to master");
-                    let (_, _) = handle_connection(master_stream_mut, &mut db, true)
+                    let (_, _) = handle_connection(master_stream_mut, MASTER, &mut db, true)
                         .map_err(|e| dbg!(e))
                         .unwrap_or((true, false));
                 }
@@ -180,7 +180,7 @@ fn main() -> Result<()> {
 
                     // Handle events for a connection
                     let (done, register) = if let Some(connection) = connections.get_mut(&token) {
-                        handle_connection(connection, &mut db, false)
+                        handle_connection(connection, token, &mut db, false)
                             .map_err(|e| dbg!(e))
                             // here we force close the connection on error
                             .unwrap_or((true, false))
@@ -195,12 +195,23 @@ fn main() -> Result<()> {
                         if let ConnectionState::Waiting(_, _, _, _) = db.state {
                             waiting_token = Some(token);
                         } else if let ConnectionState::InitiatingTransaction = db.state {
-                            // TODO: check if token already in ongoing_transacations
-                            // and error out if yes.
-                            // Add token to handle_connection directly
+                            // Don't allow for nested multi
+                            if db.ongoing_transacations.contains_key(&token) {
+                                let mut connection = connections
+                                    .get(&token)
+                                    .expect("Token should be in connections");
+                                connection.write_all(
+                                    RedisValue::SimpleError(
+                                        "ERR MULTI calls can not be nested".to_string(),
+                                    )
+                                    .to_string()
+                                    .as_bytes(),
+                                )?;
+                                db.state = ConnectionState::Ready;
+                                continue;
+                            }
 
                             db.ongoing_transacations.insert(token, Vec::new());
-                            dbg!(&db.ongoing_transacations);
 
                             connections.get_mut(&token).unwrap().write_all(
                                 RedisValue::SimpleString("OK".to_string())

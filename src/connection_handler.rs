@@ -11,11 +11,13 @@ use crate::parser::parse_redis_value;
 
 use binrw::BinRead;
 use mio::net::TcpStream;
+use mio::Token;
 use nom::Finish;
 /// When a client connects to the server
 
 pub fn handle_connection(
     connection: &mut TcpStream,
+    token: Token,
     db: &mut RedisDb,
     silent: bool,
 ) -> Result<(bool, bool)> {
@@ -108,6 +110,18 @@ pub fn handle_connection(
                 if let RedisCommand::Multi = redis_command {
                     db.state = ConnectionState::InitiatingTransaction;
                     return Ok((true, false));
+                }
+
+                // check if we are within a transaction
+                if db.ongoing_transacations.contains_key(&token) {
+                    db.ongoing_transacations
+                        .get_mut(&token)
+                        .unwrap()
+                        .push(redis_command);
+
+                    let redis_value = RedisValue::SimpleString("QUEUED".to_string());
+                    connection.write_all(redis_value.to_string().as_bytes())?;
+                    return Ok((false, false));
                 }
 
                 // Special handling of WAIT command
